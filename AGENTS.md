@@ -56,7 +56,8 @@ N lines updating while a job runs.
   `https://github.com/bene-jo/stockfish-cloud/actions/runs/27076443609`.
 - GitHub Actions were updated to current Node.js 24-compatible major versions
   on 2026-06-07 after GitHub warned that older Node.js 20 actions are being
-  phased out.
+  phased out. The updated worker-image run succeeded:
+  `https://github.com/bene-jo/stockfish-cloud/actions/runs/27076587960`.
 - Analysis jobs should reuse a warm server and must not delete it automatically;
   users often want to run several jobs back to back.
 - `analyze-fen --stream` emits JSONL `analysis_state` snapshots. The app should
