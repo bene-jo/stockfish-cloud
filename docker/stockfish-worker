@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STOCKFISH_BIN="/usr/local/bin/stockfish"
+COMMAND="${1:-}"
+if [[ -n "${COMMAND}" ]]; then
+  shift
+fi
+
+case "${COMMAND}" in
+  bench)
+    exec "${STOCKFISH_BIN}" bench "$@"
+    ;;
+  analyze-fen)
+    exec /usr/local/bin/analyze-fen --stockfish "${STOCKFISH_BIN}" "$@"
+    ;;
+  ""|-h|--help)
+    cat <<'USAGE'
+Usage:
+  stockfish-worker bench [hash threads depth]
+  stockfish-worker analyze-fen --fen FEN [options] [--stream]
+USAGE
+    ;;
+  *)
+    echo "Unknown worker command: ${COMMAND}" >&2
+    exit 1
+    ;;
+esac

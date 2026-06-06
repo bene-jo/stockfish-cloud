@@ -1,0 +1,377 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+COMMAND="${1:-}"
+if [[ -n "${COMMAND}" ]]; then
+  shift
+fi
+
+SERVER_TYPE="ccx33"
+LOCATION="fsn1"
+SSH_KEY="macbook-stockfish-cloud"
+IMAGE="ubuntu-24.04"
+SERVER_NAME="stockfish-cloud"
+SERVER_NAME_EXPLICIT="false"
+SSH_USER="root"
+BENCH_HASH_MB="128"
+BENCH_THREADS="8"
+BENCH_DEPTH="13"
+ANALYZE_FEN=""
+ANALYZE_HASH_MB="256"
+ANALYZE_THREADS="8"
+ANALYZE_MULTIPV="1"
+ANALYZE_DEPTH=""
+ANALYZE_MOVETIME_MS="10000"
+ANALYZE_STREAM="false"
+KEEP_SERVER="false"
+WORKER_IMAGE="stockfish-cloud:local"
+SKIP_BUILD="false"
+PULL_IMAGE="true"
+KNOWN_HOSTS_FILE="${TMPDIR:-/tmp}/stockfish-cloud-$$-known-hosts"
+SERVER_IP=""
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REMOTE_CONTEXT_DIR="/root/stockfish-cloud-worker"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  stockfish-cloud start [options]
+  stockfish-cloud analyze-fen --fen FEN [options]
+  stockfish-cloud delete [options]
+  stockfish-cloud list
+  stockfish-cloud bench [options]
+
+Options:
+  --server NAME_OR_IP   Server name to create/use/delete, default: stockfish-cloud
+  --server-type TYPE    Hetzner server type, default: ccx33
+  --location LOCATION   Hetzner location, default: fsn1
+  --ssh-key NAME        Hetzner SSH key name, default: macbook-stockfish-cloud
+  --worker-image IMAGE  Docker image name, default: stockfish-cloud:local
+  --skip-build          Pull/use --worker-image instead of building local docker/
+  --no-pull             With --skip-build, do not run docker pull first
+  --bench-hash MB       Stockfish bench hash size, default: 128
+  --bench-threads N     Stockfish bench threads, default: 8
+  --bench-depth N       Stockfish bench depth, default: 13
+  --fen FEN             FEN to analyze
+  --threads N           Analysis threads, default: 8
+  --hash MB             Analysis hash size, default: 256
+  --multipv N           Number of principal variations, default: 1
+  --depth N             Analyze to fixed depth
+  --movetime MS         Analyze for fixed milliseconds, default: 10000
+  --stream              Emit live analysis updates as JSONL
+  --keep-server         For bench only: do not delete the temporary server
+  -h, --help            Show this help
+
+Example:
+  ./bin/stockfish-cloud start --server-type ccx33 --location fsn1
+  ./bin/stockfish-cloud analyze-fen --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" --multipv 3
+  ./bin/stockfish-cloud delete
+  ./bin/stockfish-cloud bench --server-type ccx33 --location fsn1
+USAGE
+}
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
+}
+
+parse_args() {
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --server|--server-name|--name)
+        SERVER_NAME="${2:?Missing value for --server}"
+        SERVER_NAME_EXPLICIT="true"
+        shift 2
+        ;;
+      --server-type)
+        SERVER_TYPE="${2:?Missing value for --server-type}"
+        shift 2
+        ;;
+      --location)
+        LOCATION="${2:?Missing value for --location}"
+        shift 2
+        ;;
+      --ssh-key)
+        SSH_KEY="${2:?Missing value for --ssh-key}"
+        shift 2
+        ;;
+      --worker-image)
+        WORKER_IMAGE="${2:?Missing value for --worker-image}"
+        shift 2
+        ;;
+      --skip-build)
+        SKIP_BUILD="true"
+        shift
+        ;;
+      --no-pull)
+        PULL_IMAGE="false"
+        shift
+        ;;
+      --bench-hash)
+        BENCH_HASH_MB="${2:?Missing value for --bench-hash}"
+        shift 2
+        ;;
+      --bench-threads)
+        BENCH_THREADS="${2:?Missing value for --bench-threads}"
+        shift 2
+        ;;
+      --bench-depth)
+        BENCH_DEPTH="${2:?Missing value for --bench-depth}"
+        shift 2
+        ;;
+      --fen)
+        ANALYZE_FEN="${2:?Missing value for --fen}"
+        shift 2
+        ;;
+      --threads)
+        ANALYZE_THREADS="${2:?Missing value for --threads}"
+        shift 2
+        ;;
+      --hash)
+        ANALYZE_HASH_MB="${2:?Missing value for --hash}"
+        shift 2
+        ;;
+      --multipv)
+        ANALYZE_MULTIPV="${2:?Missing value for --multipv}"
+        shift 2
+        ;;
+      --depth)
+        ANALYZE_DEPTH="${2:?Missing value for --depth}"
+        ANALYZE_MOVETIME_MS=""
+        shift 2
+        ;;
+      --movetime)
+        ANALYZE_MOVETIME_MS="${2:?Missing value for --movetime}"
+        ANALYZE_DEPTH=""
+        shift 2
+        ;;
+      --stream)
+        ANALYZE_STREAM="true"
+        shift
+        ;;
+      --keep-server)
+        KEEP_SERVER="true"
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown option: $1"
+        ;;
+    esac
+  done
+}
+
+cleanup() {
+  if [[ "${KEEP_SERVER}" == "true" ]]; then
+    echo "Keeping server ${SERVER_NAME} because --keep-server was set."
+    return
+  fi
+
+  if [[ -n "${SERVER_CREATED:-}" ]]; then
+    echo "Deleting Hetzner server ${SERVER_NAME}..."
+    if hcloud server describe "${SERVER_NAME}" >/dev/null 2>&1; then
+      hcloud server delete "${SERVER_NAME}" >/dev/null || true
+    fi
+  fi
+}
+
+wait_for_ssh() {
+  local host="$1"
+
+  echo "Waiting for SSH on ${host}..."
+  for _ in {1..90}; do
+    if ssh \
+      -o BatchMode=yes \
+      -o ConnectTimeout=5 \
+      -o StrictHostKeyChecking=accept-new \
+      -o UserKnownHostsFile="${KNOWN_HOSTS_FILE}" \
+      "${SSH_USER}@${host}" \
+      "true" >/dev/null 2>&1; then
+      return 0
+    fi
+
+    sleep 5
+  done
+
+  return 1
+}
+
+run_remote() {
+  local host="$1"
+  shift
+
+  ssh \
+    -o BatchMode=yes \
+    -o StrictHostKeyChecking=accept-new \
+    -o UserKnownHostsFile="${KNOWN_HOSTS_FILE}" \
+    "${SSH_USER}@${host}" \
+    "$@"
+}
+
+copy_to_remote() {
+  local source="$1"
+  local host="$2"
+  local target="$3"
+
+  scp \
+    -o BatchMode=yes \
+    -o StrictHostKeyChecking=accept-new \
+    -o UserKnownHostsFile="${KNOWN_HOSTS_FILE}" \
+    -r \
+    "${source}" \
+    "${SSH_USER}@${host}:${target}"
+}
+
+create_server() {
+  echo "Creating Hetzner server ${SERVER_NAME} (${SERVER_TYPE}, ${LOCATION})..." >&2
+  if ! hcloud server create \
+    --name "${SERVER_NAME}" \
+    --type "${SERVER_TYPE}" \
+    --image "${IMAGE}" \
+    --location "${LOCATION}" \
+    --ssh-key "${SSH_KEY}" \
+    >/dev/null; then
+    return 1
+  fi
+
+  SERVER_CREATED="true"
+  SERVER_IP="$(hcloud server ip "${SERVER_NAME}")"
+  [[ -n "${SERVER_IP}" ]] || die "Could not determine server IPv4 address"
+}
+
+require_local_tools() {
+  require_command hcloud
+  require_command ssh
+  require_command scp
+}
+
+prepare_server() {
+  wait_for_ssh "${SERVER_IP}" || die "SSH did not become available"
+
+  echo "Installing Docker on ${SERVER_NAME}..."
+  run_remote "${SERVER_IP}" "DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io"
+
+  if [[ "${SKIP_BUILD}" == "false" ]]; then
+    echo "Uploading Docker worker context..."
+    run_remote "${SERVER_IP}" "rm -rf '${REMOTE_CONTEXT_DIR}' && mkdir -p '${REMOTE_CONTEXT_DIR}'"
+    copy_to_remote "${PROJECT_ROOT}/docker/." "${SERVER_IP}" "${REMOTE_CONTEXT_DIR}/"
+
+    echo "Building Stockfish container on ${SERVER_NAME}..."
+    run_remote "${SERVER_IP}" "docker build -t '${WORKER_IMAGE}' '${REMOTE_CONTEXT_DIR}'"
+  elif [[ "${PULL_IMAGE}" == "true" ]]; then
+    echo "Pulling Stockfish container ${WORKER_IMAGE} on ${SERVER_NAME}..."
+    run_remote "${SERVER_IP}" "docker pull '${WORKER_IMAGE}'"
+  fi
+}
+
+create_and_prepare_server() {
+  create_server
+  prepare_server
+}
+
+resolve_server_ip() {
+  if [[ "${SERVER_NAME}" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+    SERVER_IP="${SERVER_NAME}"
+    return
+  fi
+
+  SERVER_IP="$(hcloud server ip "${SERVER_NAME}")"
+  [[ -n "${SERVER_IP}" ]] || die "Could not determine server IPv4 address for ${SERVER_NAME}"
+}
+
+run_start() {
+  require_local_tools
+  parse_args "$@"
+  create_and_prepare_server
+
+  echo "Server is ready."
+  echo "Name: ${SERVER_NAME}"
+  echo "IP: ${SERVER_IP}"
+}
+
+run_bench() {
+  require_local_tools
+  parse_args "$@"
+  if [[ "${SERVER_NAME_EXPLICIT}" == "false" ]]; then
+    SERVER_NAME="stockfish-cloud-bench-$(date +%Y%m%d-%H%M%S)"
+  fi
+  trap cleanup EXIT
+
+  create_and_prepare_server "$@"
+
+  echo "Running Stockfish bench..."
+  run_remote "${SERVER_IP}" \
+    "docker run --rm '${WORKER_IMAGE}' bench ${BENCH_HASH_MB} ${BENCH_THREADS} ${BENCH_DEPTH}"
+}
+
+shell_quote() {
+  printf "%q" "$1"
+}
+
+run_analyze_fen() {
+  require_local_tools
+  parse_args "$@"
+
+  [[ -n "${ANALYZE_FEN}" ]] || die "Missing required --fen"
+  resolve_server_ip
+
+  local depth_or_time
+  if [[ -n "${ANALYZE_DEPTH}" ]]; then
+    depth_or_time="--depth $(shell_quote "${ANALYZE_DEPTH}")"
+  else
+    depth_or_time="--movetime $(shell_quote "${ANALYZE_MOVETIME_MS}")"
+  fi
+
+  local stream_arg=""
+  if [[ "${ANALYZE_STREAM}" == "true" ]]; then
+    stream_arg="--stream"
+  fi
+
+  echo "Running Stockfish FEN analysis..."
+  run_remote "${SERVER_IP}" \
+    "docker run --rm '${WORKER_IMAGE}' analyze-fen --fen $(shell_quote "${ANALYZE_FEN}") --threads $(shell_quote "${ANALYZE_THREADS}") --hash $(shell_quote "${ANALYZE_HASH_MB}") --multipv $(shell_quote "${ANALYZE_MULTIPV}") ${depth_or_time} ${stream_arg}"
+}
+
+run_delete() {
+  require_command hcloud
+  parse_args "$@"
+
+  echo "Deleting Hetzner server ${SERVER_NAME}..."
+  hcloud server delete "${SERVER_NAME}"
+}
+
+run_list() {
+  require_command hcloud
+  hcloud server list
+}
+
+case "${COMMAND}" in
+  start)
+    run_start "$@"
+    ;;
+  bench)
+    run_bench "$@"
+    ;;
+  analyze-fen)
+    run_analyze_fen "$@"
+    ;;
+  delete)
+    run_delete "$@"
+    ;;
+  list)
+    run_list "$@"
+    ;;
+  ""|-h|--help)
+    usage
+    ;;
+  *)
+    die "Unknown command: ${COMMAND}"
+    ;;
+esac
