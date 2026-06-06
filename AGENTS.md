@@ -32,9 +32,8 @@ Start here when taking over without the chat context:
 
 Recommended next implementation sequence:
 
-1. Verify `start --skip-build --worker-image ...` on `ccx13` first, then delete
-   the server and confirm `hcloud server list` is empty.
-2. Add a simple multi-job queue around the existing reusable-server lifecycle.
+1. Add a simple multi-job queue around the existing reusable-server lifecycle.
+2. Add server/job cost guardrails.
 3. Scaffold the native macOS app under `mac/` using the available macOS skills.
 
 Open product requirement to preserve: the macOS app must show live analysis,
@@ -58,6 +57,8 @@ N lines updating while a job runs.
   on 2026-06-07 after GitHub warned that older Node.js 20 actions are being
   phased out. The updated worker-image run succeeded:
   `https://github.com/bene-jo/stockfish-cloud/actions/runs/27076587960`.
+- GHCR image pull was verified on a fresh `ccx13` server with
+  `start --skip-build --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest`.
 - Analysis jobs should reuse a warm server and must not delete it automatically;
   users often want to run several jobs back to back.
 - `analyze-fen --stream` emits JSONL `analysis_state` snapshots. The app should
@@ -221,6 +222,11 @@ Validated on 2026-06-07:
   `elapsedMs`, MultiPV lines, scores, nodes, nps, and raw UCI lines.
 - Start-position test on `ccx13`, 2 threads, 1 second movetime:
   `bestmove e2e4`, `ponder e7e5`, `elapsedMs 1306`, `nps 1,382,620`.
+- Prebuilt GHCR image path validated on `ccx13`, 2 threads, 1 second movetime,
+  MultiPV 3, streamed JSONL: final state had `bestmove e2e4`, `ponder e7e5`,
+  `elapsedMs 1345`, depth 19 on the top line, and about `1,452,099 nps`.
+  The temporary `stockfish-cloud-verify` server was deleted and
+  `hcloud server list` was empty afterward.
 - Multi-stage Dockerfile smoke-tested on `ccx13` via `bench`, 2 threads,
   depth 1. The runtime image successfully ran `/usr/local/bin/stockfish` with
   the embedded NNUE network, then the temporary server auto-deleted.
@@ -298,9 +304,6 @@ Relevant skill guidance:
 
 ## Next Steps
 
-1. Verify the GHCR image on `ccx13` with `start --skip-build --worker-image`,
-   run one streamed analysis, delete the server, and confirm
-   `hcloud server list` is empty.
-2. Extend the CLI from single-FEN analysis to multi-job PGN/FEN queues.
-3. Add server/job cost guardrails.
-4. Scaffold the native macOS app under `mac/`.
+1. Extend the CLI from single-FEN analysis to multi-job PGN/FEN queues.
+2. Add server/job cost guardrails.
+3. Scaffold the native macOS app under `mac/`.
