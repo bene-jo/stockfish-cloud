@@ -8,20 +8,13 @@ building Stockfish on every Hetzner server.
 The GitHub Actions workflow publishes the image to:
 
 ```text
-ghcr.io/<owner>/<repo>/stockfish-worker:latest
-```
-
-For example, if the GitHub repository is `bene-jo/stockfish-cloud`, the image
-will be:
-
-```text
 ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest
 ```
 
 The workflow also publishes a commit-specific tag:
 
 ```text
-ghcr.io/<owner>/<repo>/stockfish-worker:<git-sha>
+ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:<git-sha>
 ```
 
 ## Publishing
@@ -41,7 +34,7 @@ Start a server with the published image:
 ```bash
 ./bin/stockfish-cloud start \
   --server-type ccx33 \
-  --worker-image ghcr.io/<owner>/<repo>/stockfish-worker:latest \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest \
   --skip-build
 ```
 
@@ -53,7 +46,7 @@ Run jobs against the warm server:
 ```bash
 ./bin/stockfish-cloud analyze-fen \
   --server stockfish-cloud \
-  --worker-image ghcr.io/<owner>/<repo>/stockfish-worker:latest \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest \
   --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" \
   --multipv 3 \
   --movetime 10000

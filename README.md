@@ -73,13 +73,12 @@ hcloud server list
 
 ## Fast Worker Image Path
 
-After the repo is pushed to GitHub and the worker-image workflow has published
-to GHCR, use:
+The worker image is published to GHCR:
 
 ```bash
 ./bin/stockfish-cloud start \
   --server-type ccx33 \
-  --worker-image ghcr.io/<owner>/<repo>/stockfish-worker:latest \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest \
   --skip-build
 ```
 

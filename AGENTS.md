@@ -32,12 +32,10 @@ Start here when taking over without the chat context:
 
 Recommended next implementation sequence:
 
-1. Create/push the GitHub repo, then run `.github/workflows/worker-image.yml` to
-   publish `ghcr.io/<owner>/<repo>/stockfish-worker:latest`.
-2. Verify `start --skip-build --worker-image ...` on `ccx13` first, then delete
+1. Verify `start --skip-build --worker-image ...` on `ccx13` first, then delete
    the server and confirm `hcloud server list` is empty.
-3. Add a simple multi-job queue around the existing reusable-server lifecycle.
-4. Scaffold the native macOS app under `mac/` using the available macOS skills.
+2. Add a simple multi-job queue around the existing reusable-server lifecycle.
+3. Scaffold the native macOS app under `mac/` using the available macOS skills.
 
 Open product requirement to preserve: the macOS app must show live analysis,
 similar in spirit to Lichess, with current eval, current depth/nps, and the top
@@ -51,6 +49,11 @@ N lines updating while a job runs.
 - Current Hetzner account limit allows `ccx33` but blocks `ccx43` with
   `dedicated core limit exceeded`.
 - Default reusable server name: `stockfish-cloud`.
+- GitHub repo: `https://github.com/bene-jo/stockfish-cloud`.
+- Published worker image:
+  `ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest`.
+- First worker-image workflow run succeeded on 2026-06-07:
+  `https://github.com/bene-jo/stockfish-cloud/actions/runs/27076443609`.
 - Analysis jobs should reuse a warm server and must not delete it automatically;
   users often want to run several jobs back to back.
 - `analyze-fen --stream` emits JSONL `analysis_state` snapshots. The app should
@@ -153,11 +156,15 @@ The faster prebuilt-image start path is:
 ```bash
 ./bin/stockfish-cloud start \
   --server-type ccx33 \
-  --worker-image ghcr.io/<owner>/<repo>/stockfish-worker:latest \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest \
   --skip-build
 ```
 
-The GitHub Actions workflow becomes active once the repo is pushed to GitHub.
+The GitHub Actions workflow is active on `main`.
+The first run succeeded, but GitHub annotated the workflow because its current
+third-party actions still run on Node.js 20. GitHub says Node.js 24 becomes the
+default on 2026-06-16 and Node.js 20 removal follows on 2026-09-16, so check for
+newer action major versions before relying on long-term CI stability.
 
 ## Worker Image
 
@@ -291,7 +298,9 @@ Relevant skill guidance:
 
 ## Next Steps
 
-1. Push the repo to GitHub and run the worker-image workflow.
+1. Verify the GHCR image on `ccx13` with `start --skip-build --worker-image`,
+   run one streamed analysis, delete the server, and confirm
+   `hcloud server list` is empty.
 2. Extend the CLI from single-FEN analysis to multi-job PGN/FEN queues.
 3. Add server/job cost guardrails.
 4. Scaffold the native macOS app under `mac/`.
