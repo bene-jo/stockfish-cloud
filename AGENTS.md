@@ -54,6 +54,9 @@ N lines updating while a job runs.
   `ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest`.
 - First worker-image workflow run succeeded on 2026-06-07:
   `https://github.com/bene-jo/stockfish-cloud/actions/runs/27076443609`.
+- GitHub Actions were updated to current Node.js 24-compatible major versions
+  on 2026-06-07 after GitHub warned that older Node.js 20 actions are being
+  phased out.
 - Analysis jobs should reuse a warm server and must not delete it automatically;
   users often want to run several jobs back to back.
 - `analyze-fen --stream` emits JSONL `analysis_state` snapshots. The app should
@@ -161,10 +164,6 @@ The faster prebuilt-image start path is:
 ```
 
 The GitHub Actions workflow is active on `main`.
-The first run succeeded, but GitHub annotated the workflow because its current
-third-party actions still run on Node.js 20. GitHub says Node.js 24 becomes the
-default on 2026-06-16 and Node.js 20 removal follows on 2026-09-16, so check for
-newer action major versions before relying on long-term CI stability.
 
 ## Worker Image
 
