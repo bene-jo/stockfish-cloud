@@ -309,6 +309,44 @@ Worker/app analysis display conventions:
 - Display principal variations in SAN with move numbers, while preserving raw
   UCI moves in JSON for debugging.
 
+## Performance Findings
+
+Performance investigation on 2026-06-07:
+
+- `ccx33` in `fsn1` presented as AMD EPYC Milan with `8` vCPUs, but topology
+  showed `4` physical cores with `2` hardware threads each. It supports AVX2 and
+  BMI2, but not AVX-512/VNNI.
+- On `ccx33`, Stockfish `sf_18` build targets `x86-64-avx2`, `x86-64-bmi2`,
+  and `native` were effectively tied. `native` selected `x86-64-bmi2`.
+- On the same representative FEN with MultiPV 3, `Threads=8`,
+  `Hash=14336 MB`, and a 15 second search, `ccx33` produced about
+  `5.1M-5.3M nps`. This matches the macOS app's observed `~5M nps`, so the app
+  is not leaving an obvious local implementation win on the table.
+- `Threads=4` on `ccx33` produced about `3.7M-3.9M nps` on the same workload.
+  Keep `Threads=8` for raw speed on `ccx33`.
+- `Hash=4096 MB` versus `14336 MB` did not materially change short-run nps on
+  the representative workload. The larger hash is still useful for long stable
+  searches because it delays or avoids hash saturation.
+- ARM `cax31`/`cax41` capacity was unavailable in `fsn1`, `nbg1`, and `hel1`
+  during the probe, so no ARM performance conclusion was reached.
+- `cpx52` in `fsn1` presented as shared AMD EPYC Genoa with `12` visible cores,
+  one thread per core, and AVX-512/VNNI flags exposed. It is cheaper than
+  `ccx33` in EU price data at probe time (`0.069615 EUR/h` gross vs
+  `0.119119 EUR/h` gross), but it is shared CPU rather than dedicated CPU.
+- On `cpx52` with the current AVX2 worker image, the representative MultiPV 3
+  workload produced about `10.6M-10.7M nps` at `Threads=12`.
+- On `cpx52`, locally built Stockfish `x86-64-avx512icl`,
+  `x86-64-vnni512`, and `native` builds improved real workload throughput over
+  AVX2. Best observed representative run was `native`, `Threads=12`,
+  `Hash=14336 MB`: about `12.2M nps`.
+- Practical performance direction: investigate `cpx52` plus a separate
+  Genoa/AVX-512 worker image tag as a faster option. Do not replace the
+  compatible `latest` image with an AVX-512/VNNI binary unless server selection
+  guarantees the CPU supports it.
+- Open risk: `cpx52` is shared CPU, so longer searches need variance/fair-use
+  validation before making it the product default despite the strong short-run
+  nps/cost result.
+
 ## Worker Image
 
 The fallback smoke-test flow builds the repo's `docker/` worker image on the
@@ -321,6 +359,8 @@ The repo has a prebuilt-image path:
 - `docs/worker-image.md` documents the image name and usage.
 - `start --skip-build --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest`
   pulls the image on the Hetzner server instead of compiling Stockfish there.
+- `docker/Dockerfile` accepts `STOCKFISH_ARCH`; the workflow keeps
+  `stockfish-worker:latest` on `x86-64-avx2` for `ccx33` compatibility.
 
 ## State Model
 

@@ -39,5 +39,8 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}/stockfish-worker:latest
             ghcr.io/${{ github.repository }}/stockfish-worker:${{ github.sha }}
+          build-args: |
+            STOCKFISH_REF=sf_18
+            STOCKFISH_ARCH=x86-64-avx2
           cache-from: type=gha
           cache-to: type=gha,mode=max

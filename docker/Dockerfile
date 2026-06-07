@@ -14,10 +14,11 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 ARG STOCKFISH_REF=sf_18
+ARG STOCKFISH_ARCH=x86-64-avx2
 RUN git clone --depth 1 --branch "${STOCKFISH_REF}" https://github.com/official-stockfish/Stockfish.git /src/Stockfish
 
 WORKDIR /src/Stockfish/src
-RUN make -j"$(nproc)" profile-build ARCH=x86-64-avx2
+RUN make -j"$(nproc)" profile-build ARCH="${STOCKFISH_ARCH}"
 
 FROM ubuntu:24.04
 

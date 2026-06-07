@@ -27,6 +27,18 @@ started manually from the GitHub Actions tab with `workflow_dispatch`.
 The workflow uses GitHub's built-in `GITHUB_TOKEN` with `packages: write`, so no
 personal access token should be committed or configured in this repo.
 
+The default image is built with:
+
+```text
+STOCKFISH_REF=sf_18
+STOCKFISH_ARCH=x86-64-avx2
+```
+
+`x86-64-avx2` keeps `latest` compatible with the current `ccx33` default. Faster
+CPU-specific images can be built by overriding `STOCKFISH_ARCH`, but they should
+use separate tags and only run on server types that expose the required
+instructions.
+
 ## Using a prebuilt image
 
 Start a server with the published image:
