@@ -228,16 +228,6 @@ class StabilityTracker:
                 **base,
             )
 
-        if latest.hashfull is not None and latest.hashfull >= self.hashfull_warning_threshold:
-            return StabilityResult(
-                state="unstable",
-                reason=(
-                    f"Hash is {latest.hashfull / 10:.1f}% full; increase hash "
-                    "before trusting stability."
-                ),
-                **base,
-            )
-
         stable_failure = self.failure_reason(
             minimum_depth=self.minimum_stable_depth,
             minimum_nodes=self.minimum_stable_nodes,
@@ -266,7 +256,7 @@ class StabilityTracker:
         if settling_failure is None:
             return StabilityResult(
                 state="settling",
-                reason="Displayed lines are consistent, but stable evidence is not complete yet.",
+                reason=f"Displayed lines meet settling criteria; {stable_failure}",
                 **base,
             )
 
@@ -692,6 +682,31 @@ def start_search(process: subprocess.Popen[str], args: argparse.Namespace) -> No
         send(process, f"go movetime {args.movetime}")
 
 
+def capped_hash_stability_result(
+    stability: StabilityResult,
+    current_hash_mb: int,
+) -> StabilityResult:
+    state = "settling" if stability.state in ("settling", "stable") else "unstable"
+    reason = (
+        f"Hash is {stability.hashfull / 10:.1f}% full at "
+        f"the {current_hash_mb} MB memory-aware cap; "
+    )
+    if state == "settling":
+        reason += "keeping settling, but stable needs more hash headroom."
+    else:
+        reason += "settling cannot be trusted on this server."
+
+    return StabilityResult(
+        state=state,
+        reason=reason,
+        complete_depth=stability.complete_depth,
+        sample_count=stability.sample_count,
+        depth_span=stability.depth_span,
+        nodes=stability.nodes,
+        hashfull=stability.hashfull,
+    )
+
+
 def mark_hash_saturation(
     stability_tracker: StabilityTracker,
     stability: StabilityResult,
@@ -722,21 +737,7 @@ def mark_hash_saturation(
         )
         return expanded_hash
 
-    stability_tracker.set_result(
-        StabilityResult(
-            state="unstable",
-            reason=(
-                f"Hash is {stability.hashfull / 10:.1f}% full at "
-                f"the {current_hash_mb} MB memory-aware cap; "
-                "stability cannot be trusted on this server."
-            ),
-            complete_depth=stability.complete_depth,
-            sample_count=stability.sample_count,
-            depth_span=stability.depth_span,
-            nodes=stability.nodes,
-            hashfull=stability.hashfull,
-        )
-    )
+    stability_tracker.set_result(capped_hash_stability_result(stability, current_hash_mb))
     return None
 
 
@@ -870,19 +871,7 @@ def main() -> int:
             and next_hash_mb(current_hash_mb, max_hash_mb) is None
         ):
             stability_tracker.set_result(
-                StabilityResult(
-                    state="unstable",
-                    reason=(
-                        f"Hash is {final_stability.hashfull / 10:.1f}% full at "
-                        f"the {current_hash_mb} MB memory-aware cap; stability "
-                        "cannot be trusted on this server."
-                    ),
-                    complete_depth=final_stability.complete_depth,
-                    sample_count=final_stability.sample_count,
-                    depth_span=final_stability.depth_span,
-                    nodes=final_stability.nodes,
-                    hashfull=final_stability.hashfull,
-                )
+                capped_hash_stability_result(final_stability, current_hash_mb)
             )
 
         send(process, "quit")

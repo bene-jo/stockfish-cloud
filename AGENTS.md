@@ -279,10 +279,16 @@ Current stability parameters:
   swapping order because their evals are consistently close, that should count
   as stable eval evidence rather than instability.
 - If hash is already at the memory-aware cap and `hashfull >= 900`, stability
-  remains `unstable` with a reason explaining the hash limit.
+  must not erase already-earned `settling`. Keep `settling` if settling
+  evidence passed, but explain that `stable` needs more hash headroom. If
+  settling evidence has not passed, keep `unstable` with a reason explaining the
+  hash limit.
 - Worker reasons should describe the next reachable gate. For example, between
   depths `30` and `40`, the reason should explain why `settling` is not reached,
   not merely say that `stable` requires depth `40+`.
+- Once `settling` is reached, the reason should name the concrete remaining
+  blocker for `stable` instead of saying only that stable evidence is
+  incomplete.
 - Stability states are evidence-derived, not monotonic by fiat. `settling`
   should be hard enough to earn that ordinary runs do not flicker casually, but
   a real PV/eval break can still return the state to `unstable`.
