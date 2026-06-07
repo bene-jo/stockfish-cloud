@@ -75,7 +75,11 @@ N lines updating while a job runs.
   (`sf_18` as of 2026-06-07), not an older engine and not a random development
   pre-release. Update this deliberately when a newer stable release exists.
 - `analyze-position` is the app-facing analysis command. It defaults to
-  streamed JSONL, depth `40`, `3` lines, and `4096 MB` hash.
+  streamed JSONL, depth `60`, `3` lines, and `4096 MB` hash.
+- The macOS app does not expose depth selection in the first stability-driven
+  flow. It analyzes until the live stability indicator reaches `Stable`, then
+  stops the remote analysis automatically. Depth `60` is the hidden safety
+  boundary if stability is not reached.
 - When `analyze-fen` / `analyze-position` use a non-local worker image, the CLI
   pulls that image before running analysis. This prevents already-running warm
   servers from using stale `latest` layers after GHCR publishes a new worker.
@@ -208,17 +212,22 @@ snapshot uses the same shape with `status: "completed"`, `bestmove`, and
 `ponder`.
 
 `analyze-position` is the app-facing wrapper around `analyze-fen`. It defaults
-to `--stream`, `--depth 40`, `--lines 3`, and a generated `positionId` if the
+to `--stream`, `--depth 60`, `--lines 3`, and a generated `positionId` if the
 caller does not provide one. When a `positionId` is present, the remote Docker
 container is named `stockfish-position-<positionId>` so `stop-position` can stop
 it from another app action.
 
-The UI `+` button next to depth should increase target depth in steps of `5`.
-Backend support is intentionally simple: a running position exposes
-`currentDepth` and `targetDepth` in stream snapshots, and a higher target depth
-can be run for the same `positionId` when the user wants more depth. If true
-in-process depth extension becomes important later, add a small command channel
-instead of building a public API.
+The stability indicator is derived in the app from completed depth samples for
+all requested MultiPV lines. It currently uses:
+
+- `Waiting`: not all requested lines have reported a depth yet.
+- `Still Moving`: depth is below the minimum stable depth or top moves/scores
+  are still changing.
+- `Settling`: the last two completed depth samples keep the same first moves
+  with modest score drift.
+- `Stable`: the last four completed depth samples keep the same first moves
+  with small score drift; the app auto-stops the remote analysis here.
+- `Max Depth`: the hidden depth boundary was reached before stability.
 
 The faster prebuilt-image start path is:
 
@@ -393,18 +402,17 @@ Key UI direction captured by the reference:
 - Left pane: compact server panel, `New Position` form only while the server is
   running, then `Positions`.
 - Server panel only needs status, uptime, live cost, and either start or delete.
-- Position creation takes FEN, max depth default `40`, number of lines, and
-  `Start Analysis`.
+- Position creation takes FEN, number of lines, and `Start Analysis`.
 - Positions list should show running and completed positions together without
   completed badges or queue language.
 - Right pane: selected position details only; no board in the first version.
-- Focus details on depth, time running, nodes/sec, and top lines with evals.
+- Focus details on depth, stability, time running, nodes/sec, and top lines with
+  evals.
 - Show a small engine metadata pane below the top lines with version, NNUE,
   threads, hash, lines, and target.
-- Add a small `+` button next to depth to increase target depth by `5`.
 - Do not model user-stopped positions as a separate UI state in the first
-  version; use `currentDepth` / `targetDepth` to show whether the target was
-  reached.
+  version; use the stability label and terminal depth to show whether the app
+  stopped because analysis stabilized or hit the hidden boundary.
 - Do not include redundant parameters, raw engine output, standalone eval, or
   best-move blocks in the initial UI.
 

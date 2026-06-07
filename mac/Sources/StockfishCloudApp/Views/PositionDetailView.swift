@@ -9,7 +9,7 @@ struct PositionDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 28) {
                         header(for: position)
-                        MetricsView(position: position, increaseDepth: store.increaseSelectedTargetDepth)
+                        MetricsView(position: position)
                         TopLinesView(lines: position.lines)
                         EngineMetadataView(position: position)
 
@@ -62,31 +62,29 @@ struct PositionDetailView: View {
 
 private struct MetricsView: View {
     var position: AnalysisPosition
-    var increaseDepth: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
             MetricColumn(title: "Depth") {
-                HStack(spacing: 10) {
-                    Text("\(position.currentDepth) / \(position.targetDepth)")
-                    Button(action: increaseDepth) {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Increase target depth by 5")
-                }
+                Text("\(position.currentDepth)")
             }
 
             Divider()
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 22)
+
+            MetricColumn(title: "Stability") {
+                StabilityBadge(stability: position.stability)
+            }
+
+            Divider()
+                .padding(.horizontal, 22)
 
             MetricColumn(title: "Time Running") {
                 Text(AppFormatters.milliseconds(position.elapsedMs))
             }
 
             Divider()
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 22)
 
             MetricColumn(title: "Nodes/sec") {
                 Text(AppFormatters.compactNumber(position.nps))
@@ -94,6 +92,45 @@ private struct MetricsView: View {
         }
         .font(.title3)
         .monospacedDigit()
+    }
+}
+
+private struct StabilityBadge: View {
+    var stability: AnalysisStability
+
+    var body: some View {
+        Text(stability.label)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(foregroundStyle)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(backgroundStyle, in: Capsule())
+    }
+
+    private var foregroundStyle: Color {
+        switch stability {
+        case .stable:
+            return .green
+        case .settling:
+            return .orange
+        case .maxDepth:
+            return .secondary
+        case .waiting, .moving:
+            return .secondary
+        }
+    }
+
+    private var backgroundStyle: Color {
+        switch stability {
+        case .stable:
+            return .green.opacity(0.12)
+        case .settling:
+            return .orange.opacity(0.12)
+        case .maxDepth:
+            return .secondary.opacity(0.10)
+        case .waiting, .moving:
+            return .secondary.opacity(0.10)
+        }
     }
 }
 
@@ -170,7 +207,7 @@ private struct EngineMetadataView: View {
 
     private var targetLabel: String {
         if let depth = position.parameters.depth {
-            return "Depth \(depth)"
+            return "Stable / Depth \(depth)"
         }
 
         if let movetimeMs = position.parameters.movetimeMs {

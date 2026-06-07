@@ -461,7 +461,7 @@ run_analyze_fen() {
 }
 
 run_analyze_position() {
-  ANALYZE_DEPTH="40"
+  ANALYZE_DEPTH="60"
   ANALYZE_MOVETIME_MS=""
   ANALYZE_MULTIPV="3"
   ANALYZE_STREAM="true"

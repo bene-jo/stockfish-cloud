@@ -45,13 +45,12 @@ private struct PositionRow: View {
             }
 
             HStack {
-                Text("Depth \(position.currentDepth) / \(position.targetDepth)")
+                Text("Depth \(position.currentDepth)")
                 Spacer()
-                Text(AppFormatters.milliseconds(position.elapsedMs))
+                Text(position.stability.label)
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-            .monospacedDigit()
         }
         .padding(.vertical, 4)
     }

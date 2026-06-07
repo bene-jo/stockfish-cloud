@@ -51,7 +51,6 @@ Analyze a UI-style position with live JSONL state:
   --server stockfish-cloud \
   --position-id position-1 \
   --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" \
-  --depth 40 \
   --lines 3
 ```
 
@@ -84,7 +83,8 @@ When using a GHCR worker image, analysis commands pull the image before running
 so an already-warm server does not keep using stale `latest` layers.
 
 For accuracy, run one analysis at a time on `ccx33`. The default analysis hash
-is `4096 MB`.
+is `4096 MB`. The macOS app analyzes until the top lines are stable, then stops
+automatically, with depth `60` as the hidden safety boundary.
 
 Delete the server when done:
 

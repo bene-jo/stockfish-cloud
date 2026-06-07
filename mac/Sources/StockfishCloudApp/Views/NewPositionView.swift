@@ -16,13 +16,6 @@ struct NewPositionView: View {
                     .textFieldStyle(.roundedBorder)
 
                 SliderRow(
-                    title: "Max Depth",
-                    value: $store.newTargetDepth,
-                    range: 10...80,
-                    step: 5
-                )
-
-                SliderRow(
                     title: "Lines",
                     value: $store.newLineCount,
                     range: 1...5,

@@ -8,7 +8,6 @@ final class AppStore {
     var positions: [AnalysisPosition] = []
     var selectedPositionId: String?
     var newFEN = ""
-    var newTargetDepth = 40.0
     var newLineCount = 3.0
     var statusMessage: String?
     var isRefreshingServer = false
@@ -18,6 +17,9 @@ final class AppStore {
 
     private let cli: StockfishCloudCLI
     private let serverName = "stockfish-cloud"
+    private let automaticMaxDepth = 60
+    private var stabilityTrackers: [String: StabilityTracker] = [:]
+    private var autoStopRequests: Set<String> = []
 
     init(cli: StockfishCloudCLI = StockfishCloudCLI()) {
         self.cli = cli
@@ -93,7 +95,7 @@ final class AppStore {
 
         let fen = newFEN.trimmingCharacters(in: .whitespacesAndNewlines)
         let id = "position-\(UUID().uuidString.prefix(8).lowercased())"
-        let targetDepth = Int(newTargetDepth)
+        let targetDepth = automaticMaxDepth
         let lineCount = Int(newLineCount)
         let parameters = AnalysisParameters(
             threads: 8,
@@ -114,9 +116,11 @@ final class AppStore {
             lines: [],
             parameters: parameters,
             engine: nil,
+            stability: .waiting,
             errorMessage: nil
         )
 
+        stabilityTrackers[id] = StabilityTracker()
         positions.insert(position, at: 0)
         selectedPositionId = id
         newFEN = ""
@@ -140,31 +144,6 @@ final class AppStore {
         }
     }
 
-    func increaseSelectedTargetDepth() {
-        guard let position = selectedPosition else {
-            return
-        }
-
-        let newTarget = position.targetDepth + 5
-        updatePosition(id: position.id) { position in
-            position.targetDepth = newTarget
-            position.parameters.depth = newTarget
-        }
-
-        Task {
-            if position.status == .running {
-                try? await cli.stopPosition(server: serverName, positionId: position.id)
-            }
-
-            await runPosition(
-                id: position.id,
-                fen: position.fen,
-                targetDepth: newTarget,
-                lineCount: position.parameters.multipv
-            )
-        }
-    }
-
     private func runPosition(id: String, fen: String, targetDepth: Int, lineCount: Int) async {
         isStartingAnalysis = true
         defer { isStartingAnalysis = false }
@@ -173,8 +152,10 @@ final class AppStore {
             position.status = .running
             position.targetDepth = targetDepth
             position.parameters.depth = targetDepth
+            position.stability = .waiting
             position.errorMessage = nil
         }
+        autoStopRequests.remove(id)
 
         do {
             for try await event in cli.streamPosition(
@@ -184,7 +165,10 @@ final class AppStore {
                 depth: targetDepth,
                 lines: lineCount
             ) {
-                apply(event: event, to: id)
+                let stability = apply(event: event, to: id)
+                if stability == .stable && autoStopRequests.insert(id).inserted {
+                    try? await cli.stopPosition(server: serverName, positionId: id)
+                }
             }
         } catch {
             updatePosition(id: id) { position in
@@ -194,7 +178,17 @@ final class AppStore {
         }
     }
 
-    private func apply(event: AnalysisStateEvent, to id: String) {
+    private func apply(event: AnalysisStateEvent, to id: String) -> AnalysisStability {
+        let targetDepth = event.targetDepth ?? automaticMaxDepth
+        let expectedLineCount = event.parameters.multipv
+        var tracker = stabilityTrackers[id] ?? StabilityTracker()
+        let stability = tracker.update(
+            lines: event.lines,
+            expectedLineCount: expectedLineCount,
+            targetDepth: targetDepth
+        )
+        stabilityTrackers[id] = tracker
+
         updatePosition(id: id) { position in
             position.status = event.status
             position.elapsedMs = event.elapsedMs
@@ -204,8 +198,11 @@ final class AppStore {
             position.nps = event.lines.first?.nps
             position.parameters = event.parameters
             position.engine = event.engine ?? position.engine
+            position.stability = stability
             position.errorMessage = nil
         }
+
+        return stability
     }
 
     private func updatePosition(id: String, mutate: (inout AnalysisPosition) -> Void) {

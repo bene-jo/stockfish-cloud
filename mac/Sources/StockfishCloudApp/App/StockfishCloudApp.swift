@@ -56,12 +56,6 @@ struct StockfishCloudApp: App {
                 }
                 .keyboardShortcut(".", modifiers: .command)
                 .disabled(store.selectedPosition?.status != .running)
-
-                Button("Increase Target Depth") {
-                    store.increaseSelectedTargetDepth()
-                }
-                .keyboardShortcut("+", modifiers: .command)
-                .disabled(store.selectedPosition == nil)
             }
         }
     }

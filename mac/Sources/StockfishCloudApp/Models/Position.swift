@@ -6,6 +6,29 @@ enum PositionStatus: String, Codable {
     case failed
 }
 
+enum AnalysisStability: String, Codable {
+    case waiting
+    case moving
+    case settling
+    case stable
+    case maxDepth
+
+    var label: String {
+        switch self {
+        case .waiting:
+            return "Waiting"
+        case .moving:
+            return "Still Moving"
+        case .settling:
+            return "Settling"
+        case .stable:
+            return "Stable"
+        case .maxDepth:
+            return "Max Depth"
+        }
+    }
+}
+
 struct AnalysisParameters: Codable, Equatable {
     var threads: Int
     var hashMb: Int
@@ -55,6 +78,7 @@ struct AnalysisPosition: Identifiable, Equatable {
     var lines: [PrincipalVariation]
     var parameters: AnalysisParameters
     var engine: EngineMetadata?
+    var stability: AnalysisStability
     var errorMessage: String?
 
     var isRunning: Bool {
