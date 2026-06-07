@@ -100,6 +100,7 @@ final class AppStore {
             nps: nil,
             lines: [],
             parameters: parameters,
+            engine: nil,
             errorMessage: nil
         )
 
@@ -189,6 +190,7 @@ final class AppStore {
             position.lines = event.lines
             position.nps = event.lines.first?.nps
             position.parameters = event.parameters
+            position.engine = event.engine ?? position.engine
             position.errorMessage = nil
         }
     }

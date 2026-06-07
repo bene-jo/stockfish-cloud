@@ -43,7 +43,7 @@ private struct LineRow: View {
                 .monospacedDigit()
                 .frame(width: 54, alignment: .trailing)
 
-            Text(line.pv.joined(separator: " "))
+            Text(line.displayMoves.joined(separator: " "))
                 .lineLimit(1)
                 .truncationMode(.tail)
 

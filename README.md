@@ -76,7 +76,9 @@ Stream live analysis state updates as JSONL:
 
 In stream mode, each JSONL line is an `analysis_state` snapshot. The app can
 persist the latest snapshot; the final snapshot has `status: "completed"` with
-`bestmove` and `ponder` set.
+`bestmove` and `ponder` set. Engine scores are normalized so positive means
+White is better. Principal variations include both raw UCI moves and SAN
+notation for the app UI.
 
 Delete the server when done:
 

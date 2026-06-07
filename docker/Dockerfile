@@ -13,7 +13,8 @@ RUN apt-get update \
     python3 \
   && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 https://github.com/official-stockfish/Stockfish.git /src/Stockfish
+ARG STOCKFISH_REF=sf_18
+RUN git clone --depth 1 --branch "${STOCKFISH_REF}" https://github.com/official-stockfish/Stockfish.git /src/Stockfish
 
 WORKDIR /src/Stockfish/src
 RUN make -j"$(nproc)" profile-build ARCH=x86-64-avx2
@@ -25,6 +26,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
+    python3-chess \
     python3 \
   && rm -rf /var/lib/apt/lists/*
 

@@ -64,6 +64,13 @@ N lines updating while a job runs.
 - `analyze-fen --stream` emits JSONL `analysis_state` snapshots. The app should
   persist the latest snapshot as state; the final snapshot has
   `status: "completed"` with `bestmove` and `ponder` set.
+- Analysis scores exposed to the app are normalized so positive means White is
+  better. Keep `rawScore` only as a debugging/comparison field.
+- Principal variations should include SAN notation for app display. Raw UCI PV
+  moves can stay in JSON for debugging and future tooling.
+- The worker image should use the current official stable Stockfish release
+  (`sf_18` as of 2026-06-07), not an older engine and not a random development
+  pre-release. Update this deliberately when a newer stable release exists.
 - `analyze-position` is the app-facing analysis command. It defaults to
   streamed JSONL, depth `40`, and `3` lines.
 - `stop-position --position-id ...` stops the named remote Docker container for
@@ -110,9 +117,9 @@ All user-facing UI text should be in English.
 
 Primary user flow:
 
-1. Paste one or more FENs.
-2. Choose analysis parameters.
-3. Start a Hetzner server and keep it warm while useful.
+1. Start a Hetzner server and keep it warm while useful.
+2. Paste one or more FENs.
+3. Choose analysis parameters.
 4. Start one or more remote Stockfish position analyses.
 5. Watch live analysis and final results in a history list.
 6. Stop individual jobs or explicitly delete the whole server when done.
@@ -213,6 +220,17 @@ The faster prebuilt-image start path is:
 ```
 
 The GitHub Actions workflow is active on `main`.
+
+Worker/app analysis display conventions:
+
+- Use current stable Stockfish (`sf_18` on 2026-06-07) or newer stable releases.
+- Prefer analysis settings that are at least as accurate as the visible Lichess
+  configuration. For example, keep `ccx33` app analyses at `8` threads and
+  `256 MB` hash rather than copying a smaller Lichess browser hash display.
+- Display evaluations from White's perspective, with positive values meaning
+  White is better.
+- Display principal variations in SAN with move numbers, while preserving raw
+  UCI moves in JSON for debugging.
 
 ## Worker Image
 
@@ -362,7 +380,8 @@ with standard SwiftUI controls and native macOS behavior.
 Key UI direction captured by the reference:
 
 - Minimal two-pane app.
-- Left pane: compact server panel, `New Position` form, then `Positions`.
+- Left pane: compact server panel, `New Position` form only while the server is
+  running, then `Positions`.
 - Server panel only needs status, uptime, live cost, and either start or delete.
 - Position creation takes FEN, max depth default `40`, number of lines, and
   `Start Analysis`.
@@ -370,6 +389,8 @@ Key UI direction captured by the reference:
   completed badges or queue language.
 - Right pane: selected position details only; no board in the first version.
 - Focus details on depth, time running, nodes/sec, and top lines with evals.
+- Show a small engine metadata pane below the top lines with version, NNUE,
+  threads, hash, lines, and target.
 - Add a small `+` button next to depth to increase target depth by `5`.
 - Do not model user-stopped positions as a separate UI state in the first
   version; use `currentDepth` / `targetDepth` to show whether the target was

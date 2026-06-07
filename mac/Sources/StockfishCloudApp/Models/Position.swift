@@ -14,16 +14,33 @@ struct AnalysisParameters: Codable, Equatable {
     var movetimeMs: Int?
 }
 
+struct EngineMetadata: Codable, Equatable {
+    var name: String?
+    var version: String?
+    var evalFile: String?
+    var nnue: Bool?
+}
+
 struct PrincipalVariation: Codable, Equatable, Identifiable {
     var multipv: Int
     var depth: Int?
     var scoreType: String?
     var score: Int?
+    var rawScore: Int?
     var pv: [String]
+    var san: [String]?
     var nodes: Int?
     var nps: Int?
 
     var id: Int { multipv }
+
+    var displayMoves: [String] {
+        guard let san, !san.isEmpty else {
+            return pv
+        }
+
+        return san
+    }
 }
 
 struct AnalysisPosition: Identifiable, Equatable {
@@ -37,6 +54,7 @@ struct AnalysisPosition: Identifiable, Equatable {
     var nps: Int?
     var lines: [PrincipalVariation]
     var parameters: AnalysisParameters
+    var engine: EngineMetadata?
     var errorMessage: String?
 
     var isRunning: Bool {
@@ -53,6 +71,7 @@ struct AnalysisStateEvent: Codable {
     var currentDepth: Int?
     var targetDepth: Int?
     var parameters: AnalysisParameters
+    var engine: EngineMetadata?
     var bestmove: String?
     var ponder: String?
     var lines: [PrincipalVariation]

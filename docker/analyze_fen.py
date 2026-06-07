@@ -8,6 +8,8 @@ import sys
 import time
 from dataclasses import dataclass
 
+import chess
+
 ACTIVE_PROCESS: subprocess.Popen[str] | None = None
 STOP_REQUESTED = False
 
@@ -21,6 +23,14 @@ class EngineLine:
     pv: list[str]
     nodes: int | None
     nps: int | None
+
+
+@dataclass
+class EngineMetadata:
+    name: str | None
+    version: str | None
+    eval_file: str | None
+    nnue: bool
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,6 +80,34 @@ def read_until(process: subprocess.Popen[str], marker: str) -> list[str]:
         lines.append(line)
         if line == marker:
             return lines
+
+
+def parse_engine_metadata(uci_lines: list[str]) -> EngineMetadata:
+    name = None
+    eval_file = None
+
+    for line in uci_lines:
+        if line.startswith("id name "):
+            name = line.removeprefix("id name ").strip()
+        elif line.startswith("Stockfish "):
+            name = line.strip()
+        elif line.startswith("option name EvalFile "):
+            match = re.search(r"\bdefault\s+(\S+)", line)
+            if match:
+                eval_file = match.group(1)
+
+    version = None
+    if name:
+        match = re.search(r"\bStockfish\s+(\S+)", name)
+        if match:
+            version = match.group(1)
+
+    return EngineMetadata(
+        name=name,
+        version=version,
+        eval_file=eval_file,
+        nnue=bool(eval_file),
+    )
 
 
 def parse_info(line: str) -> EngineLine | None:
@@ -129,21 +167,69 @@ def parse_bestmove(line: str) -> tuple[str | None, str | None]:
     return bestmove, match.group(2)
 
 
-def engine_line_to_dict(line: EngineLine) -> dict:
+def score_for_white(fen: str, score: int | None) -> int | None:
+    if score is None:
+        return None
+
+    board = chess.Board(fen)
+    if board.turn == chess.BLACK:
+        return -score
+
+    return score
+
+
+def san_pv_for_fen(fen: str, pv: list[str]) -> list[str]:
+    board = chess.Board(fen)
+    san_moves: list[str] = []
+
+    for move_text in pv:
+        try:
+            move = chess.Move.from_uci(move_text)
+        except ValueError:
+            break
+
+        if move not in board.legal_moves:
+            break
+
+        prefix = ""
+        if board.turn == chess.WHITE:
+            prefix = f"{board.fullmove_number}."
+        elif not san_moves:
+            prefix = f"{board.fullmove_number}..."
+
+        san = board.san(move)
+        san_moves.append(f"{prefix} {san}" if prefix else san)
+        board.push(move)
+
+    return san_moves
+
+
+def engine_metadata_to_dict(metadata: EngineMetadata) -> dict:
+    return {
+        "name": metadata.name,
+        "version": metadata.version,
+        "evalFile": metadata.eval_file,
+        "nnue": metadata.nnue,
+    }
+
+
+def engine_line_to_dict(line: EngineLine, fen: str) -> dict:
     return {
         "multipv": line.multipv,
         "depth": line.depth,
         "scoreType": line.score_type,
-        "score": line.score,
+        "score": score_for_white(fen, line.score),
+        "rawScore": line.score,
         "pv": line.pv,
+        "san": san_pv_for_fen(fen, line.pv),
         "nodes": line.nodes,
         "nps": line.nps,
     }
 
 
-def sorted_engine_lines(lines: dict[int, EngineLine]) -> list[dict]:
+def sorted_engine_lines(lines: dict[int, EngineLine], fen: str) -> list[dict]:
     return [
-        engine_line_to_dict(line)
+        engine_line_to_dict(line, fen)
         for line in sorted(lines.values(), key=lambda item: item.multipv)
     ]
 
@@ -162,6 +248,7 @@ def analysis_state(
     args: argparse.Namespace,
     started_at: float,
     latest_lines: dict[int, EngineLine],
+    engine_metadata: EngineMetadata,
     status: str,
     bestmove: str | None = None,
     ponder: str | None = None,
@@ -180,12 +267,13 @@ def analysis_state(
         "currentDepth": current_depth,
         "targetDepth": args.depth,
         "parameters": parameters_to_dict(args),
+        "engine": engine_metadata_to_dict(engine_metadata),
         "bestmove": bestmove,
         "ponder": ponder,
-        "lines": sorted_engine_lines(latest_lines),
+        "lines": sorted_engine_lines(latest_lines, args.fen),
     }
     if updated_line:
-        state["updatedLine"] = engine_line_to_dict(updated_line)
+        state["updatedLine"] = engine_line_to_dict(updated_line, args.fen)
     return state
 
 
@@ -216,7 +304,8 @@ def main() -> int:
 
     try:
         send(process, "uci")
-        read_until(process, "uciok")
+        uci_lines = read_until(process, "uciok")
+        engine_metadata = parse_engine_metadata(uci_lines)
         send(process, f"setoption name Threads value {args.threads}")
         send(process, f"setoption name Hash value {args.hash}")
         send(process, f"setoption name MultiPV value {args.multipv}")
@@ -249,6 +338,7 @@ def main() -> int:
                             args,
                             started_at,
                             latest_lines,
+                            engine_metadata,
                             status="running",
                             updated_line=parsed,
                         )
@@ -274,7 +364,8 @@ def main() -> int:
                 default=None,
             ),
             "targetDepth": args.depth,
-            "lines": sorted_engine_lines(latest_lines),
+            "engine": engine_metadata_to_dict(engine_metadata),
+            "lines": sorted_engine_lines(latest_lines, args.fen),
             "raw": raw,
         }
         if args.stream:
@@ -283,6 +374,7 @@ def main() -> int:
                     args,
                     started_at,
                     latest_lines,
+                    engine_metadata,
                     status="completed",
                     bestmove=bestmove,
                     ponder=ponder,
