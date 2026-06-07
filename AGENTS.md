@@ -80,6 +80,8 @@ N lines updating while a job runs.
 - `analyze-position` is the app-facing analysis command. The macOS app runs it
   with streamed JSONL, depth `60`, `3` lines, `16` threads, and requested
   `24576 MB` hash on the `stockfish-worker:genoa` image.
+- Hash size is an internal performance allocation. `hashfull` is not part of
+  the stability calculation and should not be surfaced in the normal app UI.
 - The macOS app does not expose depth selection in the first stability-driven
   flow. The remote worker analyzes until the live stability indicator reaches
   `stable`, then stops Stockfish automatically. Depth `60` is the hidden safety
@@ -151,7 +153,6 @@ Expected controls:
   `ccx13`, `ccx33`, `cpx52`, and later `ccx43` if the account limit allows it.
 - Location selector, default `fsn1`.
 - Threads per job.
-- Hash size.
 - MultiPV / number of lines.
 - Depth or movetime limit.
 - Max server runtime / cost guardrail.
@@ -256,15 +257,10 @@ Current stability parameters:
   least `2048 MB` headroom for the OS, Docker, Python, Stockfish overhead, and
   allocator safety. This is intentionally aggressive because a stockfish-cloud
   server should be optimized for one Stockfish analysis job.
-- Hash restarts are a recovery path, not a normal operating mode. Keep the
-  default requested hash high enough on `cpx62` that restarts should be rare in
-  ordinary analyses.
-- If `hashfull >= 900` and memory allows a larger hash, the worker stops the
-  current pass, doubles the hash up to its memory-aware cap, clears hash, and
-  restarts the same position. This is preferable to running to depth `60` with a
-  saturated hash and a permanent warning.
-- The same hash-growth rule applies when the hash saturation is discovered only
-  while finalizing the last completed depth after `bestmove`.
+- Hash fullness is cache-pressure/performance telemetry, not evidence that an
+  eval is wrong. It must not block or downgrade `stable` / `settling`, must not
+  trigger user-facing stability reasons, and must not restart analysis by
+  itself.
 - `settling`: depth `32+`, at least `150,000,000` nodes, at least `6`
   finalized complete depth samples spanning `5+` depths, every displayed line
   has at least `8` UCI plies, score drift by displayed rank is at most `0.10`
@@ -278,11 +274,6 @@ Current stability parameters:
 - PV identity/order is not a stability blocker. If two candidate moves keep
   swapping order because their evals are consistently close, that should count
   as stable eval evidence rather than instability.
-- If hash is already at the memory-aware cap and `hashfull >= 900`, stability
-  must not erase already-earned `settling`. Keep `settling` if settling
-  evidence passed, but explain that `stable` needs more hash headroom. If
-  settling evidence has not passed, keep `unstable` with a reason explaining the
-  hash limit.
 - Worker reasons should describe the next reachable gate. For example, between
   depths `30` and `40`, the reason should explain why `settling` is not reached,
   not merely say that `stable` requires depth `40+`.
@@ -292,11 +283,6 @@ Current stability parameters:
 - Stability states are evidence-derived, not monotonic by fiat. `settling`
   should be hard enough to earn that ordinary runs do not flicker casually, but
   a real PV/eval break can still return the state to `unstable`.
-- Open follow-up from real probes: expose analysis pass/restart history in the
-  streamed state. If the worker restarts with a larger hash and the user stops
-  during the second pass, the latest `completeDepth` can be lower than the
-  previous pass's reached depth, which is technically correct but confusing
-  without context.
 
 The minimum depth gates are confidence/evidence gates, not a theoretical claim
 that lower-depth positions cannot be stable. They prevent the UI from presenting
@@ -340,8 +326,9 @@ Performance investigation on 2026-06-07:
 - `Threads=4` on `ccx33` produced about `3.7M-3.9M nps` on the same workload.
   Keep `Threads=8` for raw speed on `ccx33`.
 - `Hash=4096 MB` versus `14336 MB` did not materially change short-run nps on
-  the representative workload. The larger hash is still useful for long stable
-  searches because it delays or avoids hash saturation.
+  the representative workload. Larger hash remains a reasonable internal
+  default for long searches because it gives Stockfish more transposition-table
+  cache, but hash fullness is not treated as a stability/quality gate.
 - ARM `cax31`/`cax41` capacity was unavailable in `fsn1`, `nbg1`, and `hel1`
   during the probe, so no ARM performance conclusion was reached.
 - `cpx52` in `fsn1` presented as shared AMD EPYC Genoa with `12` visible cores,
@@ -370,7 +357,8 @@ Performance investigation on 2026-06-07:
   - 60 second analysis: about `11.2M nps`, depth `33`, `673M` nodes, hash capped
     to `11728 MB`, final `hashfull=303`.
   - 5 minute analysis: about `10.9M nps`, depth `41`, `3.28B` nodes, final
-    `hashfull=920`. This is too close to saturation for trusted long stability.
+    `hashfull=920`. This indicates high transposition-table pressure, but is
+    not by itself a stability blocker.
 - `cpx62` in `fsn1` presented as shared AMD EPYC Genoa with `16` visible cores,
   one thread per core, AVX-512/VNNI flags exposed, and `32 GB` RAM. EU gross
   hourly price at probe time was `0.096271 EUR/h`, still below `ccx33`.
@@ -391,7 +379,7 @@ Performance investigation on 2026-06-07:
   - Kiwipete:
     `14.5M nps`, depth `35`, `4.36B` nodes, effective hash `23498 MB`,
     `hashfull=836`, stability `unstable` because eval drift remained high, not
-    because of hash saturation.
+    because of hash pressure.
   - Start position:
     stopped after about `160s` at `stable`, `12.6M nps`, depth `43`,
     `2.00B` nodes, effective hash `23498 MB`, `hashfull=466`.

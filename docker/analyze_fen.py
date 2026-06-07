@@ -45,7 +45,6 @@ class StabilitySample:
     pv_lengths: list[int]
     scores: list[int]
     nodes: int | None
-    hashfull: int | None
 
 
 @dataclass
@@ -56,7 +55,6 @@ class StabilityResult:
     sample_count: int = 0
     depth_span: int = 0
     nodes: int | None = None
-    hashfull: int | None = None
 
 
 class StabilityTracker:
@@ -73,7 +71,6 @@ class StabilityTracker:
     stable_score_windows = [6, 10, 10, 12, 12]
     settling_gap_windows = [20, 20, 25, 25]
     stable_gap_windows = [12, 12, 15, 15]
-    hashfull_warning_threshold = 900
 
     def __init__(self, fen: str, expected_line_count: int) -> None:
         self.fen = fen
@@ -106,7 +103,6 @@ class StabilityTracker:
                     sample_count=len(self.samples),
                     depth_span=self.depth_span,
                     nodes=self.latest_nodes,
-                    hashfull=self.latest_hashfull,
                 )
             else:
                 self.result = self.evaluate()
@@ -127,7 +123,6 @@ class StabilityTracker:
                     sample_count=len(self.samples),
                     depth_span=self.depth_span,
                     nodes=self.latest_nodes,
-                    hashfull=self.latest_hashfull,
                 )
             else:
                 self.result = self.evaluate()
@@ -181,12 +176,6 @@ class StabilityTracker:
             return None
         return self.samples[-1].nodes
 
-    @property
-    def latest_hashfull(self) -> int | None:
-        if not self.samples:
-            return None
-        return self.samples[-1].hashfull
-
     def sample_from_depth(
         self,
         depth: int,
@@ -194,7 +183,6 @@ class StabilityTracker:
     ) -> StabilitySample:
         lines = [depth_lines[index] for index in range(1, self.expected_line_count + 1)]
         nodes_values = [line.nodes for line in lines if line.nodes is not None]
-        hashfull_values = [line.hashfull for line in lines if line.hashfull is not None]
         return StabilitySample(
             depth=depth,
             pv_lengths=[len(line.pv) for line in lines],
@@ -204,7 +192,6 @@ class StabilityTracker:
                 if line.score is not None
             ],
             nodes=max(nodes_values) if nodes_values else None,
-            hashfull=max(hashfull_values) if hashfull_values else None,
         )
 
     def evaluate(self) -> StabilityResult:
@@ -217,7 +204,6 @@ class StabilityTracker:
             "sample_count": len(self.samples),
             "depth_span": self.depth_span,
             "nodes": latest.nodes,
-            "hashfull": latest.hashfull,
         }
 
         short_line = self.short_line(latest)
@@ -376,7 +362,6 @@ class StabilityTracker:
             "sampleCount": self.result.sample_count,
             "depthSpan": self.result.depth_span,
             "nodes": self.result.nodes,
-            "hashfull": self.result.hashfull,
         }
 
 
@@ -660,13 +645,6 @@ def available_auto_hash_mb(requested_hash_mb: int) -> int:
     return max(1_024, min(fraction_cap, headroom_cap))
 
 
-def next_hash_mb(current_hash_mb: int, max_hash_mb: int) -> int | None:
-    if current_hash_mb >= max_hash_mb:
-        return None
-
-    return min(current_hash_mb * 2, max_hash_mb)
-
-
 def set_hash(process: subprocess.Popen[str], hash_mb: int) -> None:
     send(process, f"setoption name Hash value {hash_mb}")
     send(process, "setoption name Clear Hash")
@@ -680,65 +658,6 @@ def start_search(process: subprocess.Popen[str], args: argparse.Namespace) -> No
         send(process, f"go depth {args.depth}")
     else:
         send(process, f"go movetime {args.movetime}")
-
-
-def capped_hash_stability_result(
-    stability: StabilityResult,
-    current_hash_mb: int,
-) -> StabilityResult:
-    state = "settling" if stability.state in ("settling", "stable") else "unstable"
-    reason = (
-        f"Hash is {stability.hashfull / 10:.1f}% full at "
-        f"the {current_hash_mb} MB memory-aware cap; "
-    )
-    if state == "settling":
-        reason += "keeping settling, but stable needs more hash headroom."
-    else:
-        reason += "settling cannot be trusted on this server."
-
-    return StabilityResult(
-        state=state,
-        reason=reason,
-        complete_depth=stability.complete_depth,
-        sample_count=stability.sample_count,
-        depth_span=stability.depth_span,
-        nodes=stability.nodes,
-        hashfull=stability.hashfull,
-    )
-
-
-def mark_hash_saturation(
-    stability_tracker: StabilityTracker,
-    stability: StabilityResult,
-    current_hash_mb: int,
-    max_hash_mb: int,
-) -> int | None:
-    if (
-        stability.hashfull is None
-        or stability.hashfull < StabilityTracker.hashfull_warning_threshold
-    ):
-        return None
-
-    expanded_hash = next_hash_mb(current_hash_mb, max_hash_mb)
-    if expanded_hash is not None:
-        stability_tracker.set_result(
-            StabilityResult(
-                state="unstable",
-                reason=(
-                    f"Hash reached {stability.hashfull / 10:.1f}%; "
-                    f"restarting with {expanded_hash} MB."
-                ),
-                complete_depth=stability.complete_depth,
-                sample_count=stability.sample_count,
-                depth_span=stability.depth_span,
-                nodes=stability.nodes,
-                hashfull=stability.hashfull,
-            )
-        )
-        return expanded_hash
-
-    stability_tracker.set_result(capped_hash_stability_result(stability, current_hash_mb))
-    return None
 
 
 def main() -> int:
@@ -766,8 +685,7 @@ def main() -> int:
         send(process, "uci")
         uci_lines = read_until(process, "uciok")
         engine_metadata = parse_engine_metadata(uci_lines)
-        max_hash_mb = available_auto_hash_mb(args.hash)
-        current_hash_mb = min(args.hash, max_hash_mb)
+        current_hash_mb = min(args.hash, available_auto_hash_mb(args.hash))
         send(process, f"setoption name Threads value {args.threads}")
         send(process, f"setoption name MultiPV value {args.multipv}")
         set_hash(process, current_hash_mb)
@@ -775,7 +693,6 @@ def main() -> int:
         latest_lines: dict[int, EngineLine] = {}
         stability_tracker = StabilityTracker(args.fen, args.multipv)
         stable_stop_requested = False
-        pending_hash_restart: int | None = None
         raw: list[str] = []
         bestmove = None
         ponder = None
@@ -794,18 +711,6 @@ def main() -> int:
             if parsed:
                 latest_lines[parsed.multipv] = parsed
                 stability = stability_tracker.update(parsed)
-                if (
-                    pending_hash_restart is None
-                    and (expanded_hash := mark_hash_saturation(
-                        stability_tracker,
-                        stability,
-                        current_hash_mb,
-                        max_hash_mb,
-                    ))
-                    is not None
-                ):
-                    send(process, "stop")
-                    pending_hash_restart = expanded_hash
 
                 if args.stream:
                     emit_jsonl(
@@ -823,7 +728,6 @@ def main() -> int:
 
                 if (
                     stability_tracker.result.state == "stable"
-                    and pending_hash_restart is None
                     and not stable_stop_requested
                 ):
                     send(process, "stop")
@@ -831,48 +735,9 @@ def main() -> int:
 
             if line.startswith("bestmove"):
                 bestmove, ponder = parse_bestmove(line)
-                if pending_hash_restart is not None and not STOP_REQUESTED:
-                    current_hash_mb = pending_hash_restart
-                    pending_hash_restart = None
-                    latest_lines = {}
-                    stability_tracker = StabilityTracker(args.fen, args.multipv)
-                    bestmove = None
-                    ponder = None
-                    stable_stop_requested = False
-                    set_hash(process, current_hash_mb)
-                    start_search(process, args)
-                    continue
-
-                final_stability = stability_tracker.finalize_all_completed_depths()
-                if not STOP_REQUESTED:
-                    pending_hash_restart = mark_hash_saturation(
-                        stability_tracker,
-                        final_stability,
-                        current_hash_mb,
-                        max_hash_mb,
-                    )
-                    if pending_hash_restart is not None:
-                        current_hash_mb = pending_hash_restart
-                        pending_hash_restart = None
-                        latest_lines = {}
-                        stability_tracker = StabilityTracker(args.fen, args.multipv)
-                        bestmove = None
-                        ponder = None
-                        stable_stop_requested = False
-                        set_hash(process, current_hash_mb)
-                        start_search(process, args)
-                        continue
                 break
 
-        final_stability = stability_tracker.finalize_all_completed_depths()
-        if (
-            final_stability.hashfull is not None
-            and final_stability.hashfull >= StabilityTracker.hashfull_warning_threshold
-            and next_hash_mb(current_hash_mb, max_hash_mb) is None
-        ):
-            stability_tracker.set_result(
-                capped_hash_stability_result(final_stability, current_hash_mb)
-            )
+        stability_tracker.finalize_all_completed_depths()
 
         send(process, "quit")
         process.wait(timeout=5)

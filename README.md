@@ -88,14 +88,13 @@ notation for the app UI.
 When using a GHCR worker image, analysis commands pull the image before running
 so an already-warm server does not keep using stale `latest` layers.
 
-For accuracy, run one analysis at a time on `cpx62`. The default analysis hash
-is `24576 MB`; the worker caps it to a memory-safe value based on server RAM. If
-Stockfish's hash still gets too full, the worker restarts the search with a
-larger hash when server memory allows it. The remote worker analyzes until the
-top-line eval landscape is stable, then stops automatically, with depth `60` as
-the hidden safety boundary. Stability is streamed as `unstable`, `settling`, or
-`stable` with a human-readable reason, and is based on finalized complete-depth
-MultiPV snapshots from the worker.
+For accuracy, run one analysis at a time on `cpx62`. Hash is an internal
+Stockfish cache allocation; the worker caps it to a memory-safe value based on
+server RAM, but hash fullness is not part of the stability signal. The remote
+worker analyzes until the top-line eval landscape is stable, then stops
+automatically, with depth `60` as the hidden safety boundary. Stability is
+streamed as `unstable`, `settling`, or `stable` with a human-readable reason,
+and is based on finalized complete-depth MultiPV snapshots from the worker.
 
 Delete the server when done:
 

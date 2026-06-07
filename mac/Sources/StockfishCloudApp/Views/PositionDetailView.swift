@@ -177,15 +177,15 @@ private struct EngineMetadataView: View {
                 GridRow {
                     MetadataLabel("Threads")
                     MetadataValue("\(position.parameters.threads)")
-                    MetadataLabel("Hash")
-                    MetadataValue("\(position.parameters.hashMb) MB")
+                    MetadataLabel("Lines")
+                    MetadataValue("\(position.parameters.multipv)")
                 }
 
                 GridRow {
-                    MetadataLabel("Lines")
-                    MetadataValue("\(position.parameters.multipv)")
                     MetadataLabel("Target")
                     MetadataValue(targetLabel)
+                    EmptyView()
+                    EmptyView()
                 }
             }
             .font(.callout)
