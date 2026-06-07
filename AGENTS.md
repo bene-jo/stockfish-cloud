@@ -60,7 +60,10 @@ N lines updating while a job runs.
 - GHCR image pull was verified on a fresh `ccx13` server with
   `start --skip-build --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest`.
 - Analysis jobs should reuse a warm server and must not delete it automatically;
-  users often want to run several jobs back to back.
+  users often want to run several positions back to back.
+- For accuracy on `ccx33`, run only one Stockfish analysis at a time. The app
+  disables new analyses while one is running, and the CLI refuses to start a new
+  labeled analysis container if another one is already running.
 - `analyze-fen --stream` emits JSONL `analysis_state` snapshots. The app should
   persist the latest snapshot as state; the final snapshot has
   `status: "completed"` with `bestmove` and `ponder` set.
@@ -72,10 +75,14 @@ N lines updating while a job runs.
   (`sf_18` as of 2026-06-07), not an older engine and not a random development
   pre-release. Update this deliberately when a newer stable release exists.
 - `analyze-position` is the app-facing analysis command. It defaults to
-  streamed JSONL, depth `40`, and `3` lines.
+  streamed JSONL, depth `40`, `3` lines, and `4096 MB` hash.
 - When `analyze-fen` / `analyze-position` use a non-local worker image, the CLI
   pulls that image before running analysis. This prevents already-running warm
   servers from using stale `latest` layers after GHCR publishes a new worker.
+  Treat this as a development-safe default, not the final production strategy.
+  Production should pull on server start, record the exact worker image
+  tag/digest in server/app state, and pull again only when the desired worker
+  version changed or the image is missing.
 - `stop-position --position-id ...` stops the named remote Docker container for
   a running analysis. Stop is an action, not a separate position state; terminal
   stream snapshots still use `status: "completed"`.
@@ -228,8 +235,8 @@ Worker/app analysis display conventions:
 
 - Use current stable Stockfish (`sf_18` on 2026-06-07) or newer stable releases.
 - Prefer analysis settings that are at least as accurate as the visible Lichess
-  configuration. For example, keep `ccx33` app analyses at `8` threads and
-  `256 MB` hash rather than copying a smaller Lichess browser hash display.
+  configuration. Keep `ccx33` app analyses at `8` threads and `4096 MB` hash
+  rather than copying a smaller Lichess browser hash display.
 - Display evaluations from White's perspective, with positive values meaning
   White is better.
 - Display principal variations in SAN with move numbers, while preserving raw

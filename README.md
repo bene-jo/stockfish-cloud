@@ -3,8 +3,8 @@
 Remote Stockfish analysis on short-lived Hetzner Cloud servers.
 
 The idea: start a powerful cloud server when you need analysis, keep it warm
-while running several jobs, then delete it so there are no standby compute
-costs. The local Mac stays free.
+while running several positions one after another, then delete it so there are
+no standby compute costs. The local Mac stays free.
 
 ## Current Status
 
@@ -39,7 +39,7 @@ Analyze a position:
   --server stockfish-cloud \
   --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" \
   --threads 8 \
-  --hash 256 \
+  --hash 4096 \
   --multipv 3 \
   --movetime 10000
 ```
@@ -82,6 +82,9 @@ notation for the app UI.
 
 When using a GHCR worker image, analysis commands pull the image before running
 so an already-warm server does not keep using stale `latest` layers.
+
+For accuracy, run one analysis at a time on `ccx33`. The default analysis hash
+is `4096 MB`.
 
 Delete the server when done:
 
@@ -132,7 +135,7 @@ The planned macOS app should be a native English-language job console for:
 
 - starting/deleting the Hetzner server,
 - pasting FENs and configuring analysis parameters,
-- running and stopping multiple analysis jobs,
+- running and stopping position analyses one at a time,
 - showing live analysis like Lichess, with current eval and top lines,
 - keeping history/results,
 - showing live and accumulated estimated costs.

@@ -17,7 +17,7 @@ BENCH_HASH_MB="128"
 BENCH_THREADS="8"
 BENCH_DEPTH="13"
 ANALYZE_FEN=""
-ANALYZE_HASH_MB="256"
+ANALYZE_HASH_MB="4096"
 ANALYZE_THREADS="8"
 ANALYZE_MULTIPV="1"
 ANALYZE_DEPTH=""
@@ -60,7 +60,7 @@ Options:
   --fen FEN             FEN to analyze
   --position-id ID      Stable position/job id for app-facing commands
   --threads N           Analysis threads, default: 8
-  --hash MB             Analysis hash size, default: 256
+  --hash MB             Analysis hash size, default: 4096
   --multipv N           Number of principal variations, default: 1
   --lines N             Alias for --multipv
   --depth N             Analyze to fixed depth
@@ -349,6 +349,15 @@ position_container_name() {
   printf "stockfish-position-%s" "${sanitized}"
 }
 
+ensure_no_running_analysis() {
+  local running
+
+  running="$(run_remote "${SERVER_IP}" "docker ps --filter label=stockfish-cloud.analysis=true --format '{{.Names}}'; docker ps --filter 'name=^/stockfish-position-' --format '{{.Names}}'" | sort -u)"
+  if [[ -n "${running}" ]]; then
+    die "Another Stockfish analysis is already running on ${SERVER_NAME}: ${running}. Stop it before starting a new one."
+  fi
+}
+
 run_status() {
   require_command hcloud
   require_command python3
@@ -442,6 +451,9 @@ run_analyze_fen() {
   if [[ -n "${POSITION_ID}" ]]; then
     container_args="--name $(shell_quote "$(position_container_name "${POSITION_ID}")")"
   fi
+
+  ensure_no_running_analysis
+  container_args="${container_args} --label stockfish-cloud.analysis=true"
 
   echo "Running Stockfish FEN analysis..."
   run_remote "${SERVER_IP}" \

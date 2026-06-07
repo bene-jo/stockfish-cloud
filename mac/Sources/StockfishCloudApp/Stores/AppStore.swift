@@ -32,9 +32,22 @@ final class AppStore {
         return positions.first { $0.id == selectedPositionId }
     }
 
+    var hasRunningPosition: Bool {
+        positions.contains { $0.status == .running } || isStartingAnalysis
+    }
+
     var canStartAnalysis: Bool {
         !newFEN.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            server.running
+            server.running &&
+            !hasRunningPosition
+    }
+
+    var newPositionButtonTitle: String {
+        if hasRunningPosition {
+            return "Analysis Running"
+        }
+
+        return "Start Analysis"
     }
 
     func refreshServerStatus() async {
@@ -84,7 +97,7 @@ final class AppStore {
         let lineCount = Int(newLineCount)
         let parameters = AnalysisParameters(
             threads: 8,
-            hashMb: 256,
+            hashMb: 4096,
             multipv: lineCount,
             depth: targetDepth,
             movetimeMs: nil

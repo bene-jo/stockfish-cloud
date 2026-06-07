@@ -32,7 +32,7 @@ struct NewPositionView: View {
                 Button {
                     store.startAnalysis()
                 } label: {
-                    Text("Start Analysis")
+                    Text(store.newPositionButtonTitle)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
