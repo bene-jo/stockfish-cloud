@@ -100,7 +100,7 @@ struct StockfishCloudCLI {
                 "--position-id", positionId,
                 "--fen", fen,
                 "--threads", "8",
-                "--hash", "8192",
+                "--hash", "14336",
                 "--depth", "\(depth)",
                 "--lines", "\(lines)"
             ]

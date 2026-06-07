@@ -75,7 +75,7 @@ N lines updating while a job runs.
   (`sf_18` as of 2026-06-07), not an older engine and not a random development
   pre-release. Update this deliberately when a newer stable release exists.
 - `analyze-position` is the app-facing analysis command. It defaults to
-  streamed JSONL, depth `60`, `3` lines, and `8192 MB` hash.
+  streamed JSONL, depth `60`, `3` lines, and `14336 MB` hash.
 - The macOS app does not expose depth selection in the first stability-driven
   flow. The remote worker analyzes until the live stability indicator reaches
   `stable`, then stops Stockfish automatically. Depth `60` is the hidden safety
@@ -246,7 +246,10 @@ provisional search bounds and must not be used to decide `settling` or `stable`.
 Current stability parameters:
 
 - Hidden boundary: depth `60`.
-- Default app/CLI hash: `8192 MB`.
+- Default app/CLI hash: `14336 MB`.
+- Hash restarts are a recovery path, not a normal operating mode. Keep the
+  default hash high enough on `ccx33` that restarts should be rare in ordinary
+  analyses.
 - If `hashfull >= 900` and memory allows a larger hash, the worker stops the
   current pass, doubles the hash up to its memory-aware cap, clears hash, and
   restarts the same position. This is preferable to running to depth `60` with a
@@ -255,14 +258,17 @@ Current stability parameters:
   while finalizing the last completed depth after `bestmove`.
 - `settling`: depth `32+`, at least `150,000,000` nodes, at least `6`
   finalized complete depth samples spanning `5+` depths, every displayed line
-  has at least `8` UCI plies, the first `6` UCI plies of every displayed line
-  are unchanged, and score drift is at most `0.10` pawns for line 1 and `0.15`
-  for lines 2-3.
+  has at least `8` UCI plies, score drift by displayed rank is at most `0.10`
+  pawns for line 1 and `0.15` for lines 2-3, and neighboring-line gap drift is
+  at most `0.20` pawns.
 - `stable`: depth `40+`, at least `300,000,000` nodes, at least `10`
   finalized complete depth samples spanning `9+` depths, every displayed line
-  has at least `8` UCI plies, the first `6` UCI plies of every displayed line
-  are unchanged, and score drift is at most `0.06` pawns for line 1 and `0.10`
-  for lines 2-3.
+  has at least `8` UCI plies, score drift by displayed rank is at most `0.06`
+  pawns for line 1 and `0.10` for lines 2-3, and neighboring-line gap drift is
+  at most `0.12` pawns.
+- PV identity/order is not a stability blocker. If two candidate moves keep
+  swapping order because their evals are consistently close, that should count
+  as stable eval evidence rather than instability.
 - If hash is already at the memory-aware cap and `hashfull >= 900`, stability
   remains `unstable` with a reason explaining the hash limit.
 - Worker reasons should describe the next reachable gate. For example, between
@@ -296,7 +302,7 @@ Worker/app analysis display conventions:
 
 - Use current stable Stockfish (`sf_18` on 2026-06-07) or newer stable releases.
 - Prefer analysis settings that are at least as accurate as the visible Lichess
-  configuration. Keep `ccx33` app analyses at `8` threads and `8192 MB` hash
+  configuration. Keep `ccx33` app analyses at `8` threads and `14336 MB` hash
   rather than copying a smaller Lichess browser hash display.
 - Display evaluations from White's perspective, with positive values meaning
   White is better.

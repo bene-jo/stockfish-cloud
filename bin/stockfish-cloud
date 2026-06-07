@@ -17,7 +17,7 @@ BENCH_HASH_MB="128"
 BENCH_THREADS="8"
 BENCH_DEPTH="13"
 ANALYZE_FEN=""
-ANALYZE_HASH_MB="8192"
+ANALYZE_HASH_MB="14336"
 ANALYZE_THREADS="8"
 ANALYZE_MULTIPV="1"
 ANALYZE_DEPTH=""
@@ -60,7 +60,7 @@ Options:
   --fen FEN             FEN to analyze
   --position-id ID      Stable position/job id for app-facing commands
   --threads N           Analysis threads, default: 8
-  --hash MB             Analysis hash size, default: 8192
+  --hash MB             Analysis hash size, default: 14336
   --multipv N           Number of principal variations, default: 1
   --lines N             Alias for --multipv
   --depth N             Analyze to fixed depth

@@ -39,7 +39,6 @@ class EngineMetadata:
 @dataclass
 class StabilitySample:
     depth: int
-    move_prefixes: list[list[str]]
     pv_lengths: list[int]
     scores: list[int]
     nodes: int | None
@@ -63,13 +62,14 @@ class StabilityTracker:
     minimum_settling_nodes = 150_000_000
     minimum_stable_nodes = 300_000_000
     minimum_pv_moves = 8
-    compared_prefix_moves = 6
     settling_sample_count = 6
     stable_sample_count = 10
     settling_depth_span = 5
     stable_depth_span = 9
     settling_score_windows = [10, 15, 15, 20, 20]
     stable_score_windows = [6, 10, 10, 12, 12]
+    settling_gap_windows = [20, 20, 25, 25]
+    stable_gap_windows = [12, 12, 15, 15]
     hashfull_warning_threshold = 900
 
     def __init__(self, fen: str, expected_line_count: int) -> None:
@@ -194,10 +194,6 @@ class StabilityTracker:
         hashfull_values = [line.hashfull for line in lines if line.hashfull is not None]
         return StabilitySample(
             depth=depth,
-            move_prefixes=[
-                line.pv[: self.compared_prefix_moves]
-                for line in lines
-            ],
             pv_lengths=[len(line.pv) for line in lines],
             scores=[
                 score_for_white(self.fen, line.score)
@@ -245,6 +241,7 @@ class StabilityTracker:
             required_samples=self.stable_sample_count,
             required_depth_span=self.stable_depth_span,
             score_windows=self.stable_score_windows,
+            gap_windows=self.stable_gap_windows,
             label="stable",
         )
         if stable_failure is None:
@@ -260,6 +257,7 @@ class StabilityTracker:
             required_samples=self.settling_sample_count,
             required_depth_span=self.settling_depth_span,
             score_windows=self.settling_score_windows,
+            gap_windows=self.settling_gap_windows,
             label="settling",
         )
         if settling_failure is None:
@@ -293,6 +291,7 @@ class StabilityTracker:
         required_samples: int,
         required_depth_span: int,
         score_windows: list[int],
+        gap_windows: list[int],
         label: str,
     ) -> str | None:
         latest = self.samples[-1]
@@ -322,24 +321,14 @@ class StabilityTracker:
                 f"{required_depth_span}."
             )
 
-        prefix_reason = self.prefix_change_reason(recent)
-        if prefix_reason:
-            return prefix_reason
-
         score_reason = self.score_drift_reason(recent, score_windows, label)
         if score_reason:
             return score_reason
 
-        return None
+        gap_reason = self.score_gap_drift_reason(recent, gap_windows, label)
+        if gap_reason:
+            return gap_reason
 
-    def prefix_change_reason(self, samples: list[StabilitySample]) -> str | None:
-        reference = samples[0].move_prefixes
-        for sample in samples[1:]:
-            for index, prefix in enumerate(sample.move_prefixes, start=1):
-                if index > len(reference) or prefix != reference[index - 1]:
-                    return (
-                        f"Line {index} PV changed within the evidence window."
-                    )
         return None
 
     def score_drift_reason(
@@ -362,6 +351,30 @@ class StabilityTracker:
                 )
         return None
 
+    def score_gap_drift_reason(
+        self,
+        samples: list[StabilitySample],
+        gap_windows: list[int],
+        label: str,
+    ) -> str | None:
+        for line_index in range(self.expected_line_count - 1):
+            if any(len(sample.scores) <= line_index + 1 for sample in samples):
+                return "Waiting for scores on all displayed lines."
+
+            gaps = [
+                abs(sample.scores[line_index] - sample.scores[line_index + 1])
+                for sample in samples
+            ]
+            drift = max(gaps) - min(gaps)
+            window = gap_windows[min(line_index, len(gap_windows) - 1)]
+            if drift > window:
+                return (
+                    f"Gap between lines {line_index + 1} and {line_index + 2} "
+                    f"changed by {drift / 100:.2f}; {label} allows "
+                    f"{window / 100:.2f}."
+                )
+        return None
+
     def to_dict(self) -> dict:
         return {
             "state": self.result.state,
@@ -379,7 +392,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stockfish", required=True)
     parser.add_argument("--fen", required=True)
     parser.add_argument("--threads", type=int, default=1)
-    parser.add_argument("--hash", type=int, default=8192)
+    parser.add_argument("--hash", type=int, default=14336)
     parser.add_argument("--multipv", type=int, default=1)
     parser.add_argument("--depth", type=int)
     parser.add_argument("--movetime", type=int)
