@@ -109,6 +109,18 @@ The worker image is published to GHCR:
 
 See `docs/worker-image.md` for details.
 
+## macOS App
+
+Build and launch the SwiftUI app:
+
+```bash
+./script/build_and_run.sh
+```
+
+The first app version lives under `mac/`. It uses the local CLI to read server
+status, start/delete the server, stream position analysis, and stop a running
+position.
+
 ## Product Direction
 
 The planned macOS app should be a native English-language job console for:

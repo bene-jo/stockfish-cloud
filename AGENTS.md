@@ -32,7 +32,9 @@ Start here when taking over without the chat context:
 
 Recommended next implementation sequence:
 
-1. Scaffold the native macOS app under `mac/` using the available macOS skills.
+1. Continue the native macOS app under `mac/`.
+2. Add local persistence for positions/history.
+3. Harden server/action error handling in the UI.
 
 Open product requirement to preserve: the macOS app must show live analysis,
 similar in spirit to Lichess, with current eval, current depth/nps, and the top
@@ -69,6 +71,12 @@ N lines updating while a job runs.
   stream snapshots still use `status: "completed"`.
 - `status --json` returns app-facing server status, uptime, hourly rate, and
   estimated live cost.
+- Native macOS app scaffold lives under `mac/` as a SwiftPM SwiftUI executable
+  product named `StockfishCloud`.
+- Project-level run entrypoint: `./script/build_and_run.sh`. It builds the
+  SwiftPM app, stages `dist/StockfishCloud.app`, launches it as a real app
+  bundle, and is wired to `.codex/environments/environment.toml`.
+- The app uses the local `bin/stockfish-cloud` CLI rather than a public API.
 - App-facing backend commands were verified on a temporary `ccx13` server on
   2026-06-07:
   - `status --json` returned running status, uptime, hourly rate, and live cost.
@@ -95,7 +103,7 @@ Working name: Stockfish Cloud.
 
 Build a small native macOS app for running remote Stockfish analysis jobs on
 temporary Hetzner Cloud servers. The app should make remote compute feel as
-simple as pasting positions into a native queue, while keeping local Mac
+simple as pasting positions into a native list, while keeping local Mac
 resources free.
 
 All user-facing UI text should be in English.
@@ -166,6 +174,15 @@ The current CLI has a first reusable-server analysis shape:
 ./bin/stockfish-cloud stop-position --server stockfish-cloud --position-id position-1
 ./bin/stockfish-cloud delete --server stockfish-cloud
 ```
+
+The current macOS app build/run shape is:
+
+```bash
+./script/build_and_run.sh
+```
+
+Use `./script/build_and_run.sh --verify` to build, launch, and confirm the
+`StockfishCloud` process exists.
 
 `analyze-fen` returns one final structured JSON result by default for manual CLI
 use and debugging. With `--stream`, it emits JSONL `analysis_state` snapshots
@@ -362,4 +379,6 @@ Key UI direction captured by the reference:
 
 ## Next Steps
 
-1. Scaffold the native macOS app under `mac/`.
+1. Add local persistence for positions/history.
+2. Harden server/action error handling in the UI.
+3. Exercise a full app-driven remote analysis session on `ccx13`.
