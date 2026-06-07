@@ -21,6 +21,7 @@ class EngineLine:
     depth: int | None
     score_type: str | None
     score: int | None
+    score_bound: str | None
     pv: list[str]
     nodes: int | None
     nps: int | None
@@ -89,17 +90,35 @@ class StabilityTracker:
         if line.depth is None or line.multipv > self.expected_line_count:
             return self.result
 
+        self.finalize_completed_depths_before(line.depth)
+        if line.score_bound is not None:
+            if not self.samples:
+                self.result = StabilityResult(
+                    state="unstable",
+                    reason=(
+                        f"Waiting for exact scores on all {self.expected_line_count} "
+                        f"lines at depth {line.depth}."
+                    ),
+                    complete_depth=self.complete_depth,
+                    sample_count=len(self.samples),
+                    depth_span=self.depth_span,
+                    nodes=self.latest_nodes,
+                    hashfull=self.latest_hashfull,
+                )
+            else:
+                self.result = self.evaluate()
+            return self.result
+
         depth_lines = self.lines_by_depth.setdefault(line.depth, {})
         depth_lines[line.multipv] = line
-        self.finalize_completed_depths_before(line.depth)
 
         if len(depth_lines) < self.expected_line_count:
             if not self.samples:
                 self.result = StabilityResult(
                     state="unstable",
                     reason=(
-                        f"Waiting for all {self.expected_line_count} lines at depth "
-                        f"{line.depth}."
+                        f"Waiting for exact scores on all {self.expected_line_count} "
+                        f"lines at depth {line.depth}."
                     ),
                     complete_depth=self.complete_depth,
                     sample_count=len(self.samples),
@@ -459,6 +478,7 @@ def parse_info(line: str) -> EngineLine | None:
 
     score_type = None
     score = None
+    score_bound = None
     if "score" in tokens:
         score_index = tokens.index("score")
         if score_index + 2 < len(tokens):
@@ -467,6 +487,10 @@ def parse_info(line: str) -> EngineLine | None:
                 score = int(tokens[score_index + 2])
             except ValueError:
                 score = None
+        if "lowerbound" in tokens:
+            score_bound = "lowerbound"
+        elif "upperbound" in tokens:
+            score_bound = "upperbound"
 
     pv_index = tokens.index("pv")
     pv = tokens[pv_index + 1 :]
@@ -476,6 +500,7 @@ def parse_info(line: str) -> EngineLine | None:
         depth=depth,
         score_type=score_type,
         score=score,
+        score_bound=score_bound,
         pv=pv,
         nodes=nodes,
         nps=nps,
@@ -544,6 +569,7 @@ def engine_line_to_dict(line: EngineLine, fen: str) -> dict:
         "scoreType": line.score_type,
         "score": score_for_white(fen, line.score),
         "rawScore": line.score,
+        "scoreBound": line.score_bound,
         "pv": line.pv,
         "san": san_pv_for_fen(fen, line.pv),
         "nodes": line.nodes,
@@ -641,6 +667,62 @@ def set_hash(process: subprocess.Popen[str], hash_mb: int) -> None:
     read_until(process, "readyok")
 
 
+def start_search(process: subprocess.Popen[str], args: argparse.Namespace) -> None:
+    send(process, f"position fen {args.fen}")
+    if args.depth:
+        send(process, f"go depth {args.depth}")
+    else:
+        send(process, f"go movetime {args.movetime}")
+
+
+def mark_hash_saturation(
+    stability_tracker: StabilityTracker,
+    stability: StabilityResult,
+    current_hash_mb: int,
+    max_hash_mb: int,
+) -> int | None:
+    if (
+        stability.hashfull is None
+        or stability.hashfull < StabilityTracker.hashfull_warning_threshold
+    ):
+        return None
+
+    expanded_hash = next_hash_mb(current_hash_mb, max_hash_mb)
+    if expanded_hash is not None:
+        stability_tracker.set_result(
+            StabilityResult(
+                state="unstable",
+                reason=(
+                    f"Hash reached {stability.hashfull / 10:.1f}%; "
+                    f"restarting with {expanded_hash} MB."
+                ),
+                complete_depth=stability.complete_depth,
+                sample_count=stability.sample_count,
+                depth_span=stability.depth_span,
+                nodes=stability.nodes,
+                hashfull=stability.hashfull,
+            )
+        )
+        return expanded_hash
+
+    stability_tracker.set_result(
+        StabilityResult(
+            state="unstable",
+            reason=(
+                f"Hash is {stability.hashfull / 10:.1f}% full at "
+                f"the {current_hash_mb} MB memory-aware cap; "
+                "stability cannot be trusted on this server."
+            ),
+            complete_depth=stability.complete_depth,
+            sample_count=stability.sample_count,
+            depth_span=stability.depth_span,
+            nodes=stability.nodes,
+            hashfull=stability.hashfull,
+        )
+    )
+    return None
+
+
 def main() -> int:
     global ACTIVE_PROCESS
 
@@ -681,11 +763,7 @@ def main() -> int:
         ponder = None
         assert process.stdout is not None
 
-        send(process, f"position fen {args.fen}")
-        if args.depth:
-            send(process, f"go depth {args.depth}")
-        else:
-            send(process, f"go movetime {args.movetime}")
+        start_search(process, args)
 
         while True:
             line = process.stdout.readline()
@@ -699,44 +777,17 @@ def main() -> int:
                 latest_lines[parsed.multipv] = parsed
                 stability = stability_tracker.update(parsed)
                 if (
-                    stability.hashfull is not None
-                    and stability.hashfull >= StabilityTracker.hashfull_warning_threshold
-                    and pending_hash_restart is None
+                    pending_hash_restart is None
+                    and (expanded_hash := mark_hash_saturation(
+                        stability_tracker,
+                        stability,
+                        current_hash_mb,
+                        max_hash_mb,
+                    ))
+                    is not None
                 ):
-                    expanded_hash = next_hash_mb(current_hash_mb, max_hash_mb)
-                    if expanded_hash is not None:
-                        stability_tracker.set_result(
-                            StabilityResult(
-                                state="unstable",
-                                reason=(
-                                    f"Hash reached {stability.hashfull / 10:.1f}%; "
-                                    f"restarting with {expanded_hash} MB."
-                                ),
-                                complete_depth=stability.complete_depth,
-                                sample_count=stability.sample_count,
-                                depth_span=stability.depth_span,
-                                nodes=stability.nodes,
-                                hashfull=stability.hashfull,
-                            )
-                        )
-                        send(process, "stop")
-                        pending_hash_restart = expanded_hash
-                    else:
-                        stability_tracker.set_result(
-                            StabilityResult(
-                                state="unstable",
-                                reason=(
-                                    f"Hash is {stability.hashfull / 10:.1f}% full at "
-                                    f"the {current_hash_mb} MB memory-aware cap; "
-                                    "stability cannot be trusted on this server."
-                                ),
-                                complete_depth=stability.complete_depth,
-                                sample_count=stability.sample_count,
-                                depth_span=stability.depth_span,
-                                nodes=stability.nodes,
-                                hashfull=stability.hashfull,
-                            )
-                        )
+                    send(process, "stop")
+                    pending_hash_restart = expanded_hash
 
                 if args.stream:
                     emit_jsonl(
@@ -771,12 +822,28 @@ def main() -> int:
                     ponder = None
                     stable_stop_requested = False
                     set_hash(process, current_hash_mb)
-                    send(process, f"position fen {args.fen}")
-                    if args.depth:
-                        send(process, f"go depth {args.depth}")
-                    else:
-                        send(process, f"go movetime {args.movetime}")
+                    start_search(process, args)
                     continue
+
+                final_stability = stability_tracker.finalize_all_completed_depths()
+                if not STOP_REQUESTED:
+                    pending_hash_restart = mark_hash_saturation(
+                        stability_tracker,
+                        final_stability,
+                        current_hash_mb,
+                        max_hash_mb,
+                    )
+                    if pending_hash_restart is not None:
+                        current_hash_mb = pending_hash_restart
+                        pending_hash_restart = None
+                        latest_lines = {}
+                        stability_tracker = StabilityTracker(args.fen, args.multipv)
+                        bestmove = None
+                        ponder = None
+                        stable_stop_requested = False
+                        set_hash(process, current_hash_mb)
+                        start_search(process, args)
+                        continue
                 break
 
         final_stability = stability_tracker.finalize_all_completed_depths()

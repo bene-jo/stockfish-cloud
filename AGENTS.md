@@ -239,6 +239,10 @@ working on the same depth. At analysis completion, the worker finalizes any
 remaining complete depths. The worker samples finalized exact-depth MultiPV
 snapshots, not mixed latest-line state.
 
+Only exact UCI score updates are eligible as stability evidence. Updates marked
+`lowerbound` or `upperbound` may still be streamed for live display, but they are
+provisional search bounds and must not be used to decide `settling` or `stable`.
+
 Current stability parameters:
 
 - Hidden boundary: depth `60`.
@@ -247,6 +251,8 @@ Current stability parameters:
   current pass, doubles the hash up to its memory-aware cap, clears hash, and
   restarts the same position. This is preferable to running to depth `60` with a
   saturated hash and a permanent warning.
+- The same hash-growth rule applies when the hash saturation is discovered only
+  while finalizing the last completed depth after `bestmove`.
 - `settling`: depth `32+`, at least `150,000,000` nodes, at least `6`
   finalized complete depth samples spanning `5+` depths, every displayed line
   has at least `8` UCI plies, the first `6` UCI plies of every displayed line
