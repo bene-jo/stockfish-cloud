@@ -20,6 +20,7 @@ decisions, constraints, and implementation notes in this file.
 Start here when taking over without the chat context:
 
 1. Read this `AGENTS.md`, then `README.md`, then `docs/worker-image.md`.
+   Also read `docs/mac-app-ui-reference.md` before building the macOS app UI.
 2. Run `git status --short --untracked-files=all`; the repo is currently a new
    local Git repo and the project files are expected to be untracked until the
    first commit.
@@ -301,6 +302,32 @@ Relevant skill guidance:
 - Create `script/build_and_run.sh` and `.codex/environments/environment.toml`
   when scaffolding the app so the Codex Run button works.
 - Use system-adaptive SwiftUI colors/materials and desktop patterns.
+
+## macOS UI Reference
+
+Current UI reference:
+
+- `docs/mac-app-ui-reference.md`
+- `docs/assets/mac-app-ui-reference-minimal.png`
+
+Treat the image as a wireframe-level reference for information hierarchy,
+layout, and product direction, not as exact design guidance. Implement the app
+with standard SwiftUI controls and native macOS behavior.
+
+Key UI direction captured by the reference:
+
+- Minimal two-pane app.
+- Left pane: compact server panel, `New Position` form, then `Positions`.
+- Server panel only needs status, uptime, live cost, and either start or delete.
+- Position creation takes FEN, max depth default `40`, number of lines, and
+  `Start Analysis`.
+- Positions list should show running and completed positions together without
+  completed badges or queue language.
+- Right pane: selected position details only; no board in the first version.
+- Focus details on depth, time running, nodes/sec, and top lines with evals.
+- Add a small `+` button next to depth to increase target depth by `5`.
+- Do not include redundant parameters, raw engine output, standalone eval, or
+  best-move blocks in the initial UI.
 
 ## Next Steps
 
