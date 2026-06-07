@@ -39,7 +39,7 @@ Analyze a position:
   --server stockfish-cloud \
   --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" \
   --threads 8 \
-  --hash 4096 \
+  --hash 8192 \
   --multipv 3 \
   --movetime 10000
 ```
@@ -83,9 +83,12 @@ When using a GHCR worker image, analysis commands pull the image before running
 so an already-warm server does not keep using stale `latest` layers.
 
 For accuracy, run one analysis at a time on `ccx33`. The default analysis hash
-is `4096 MB`. The remote worker analyzes until the top lines are stable, then
-stops automatically, with depth `60` as the hidden safety boundary. Stability is
-streamed as `unstable`, `settling`, or `stable` with a human-readable reason.
+is `8192 MB`. If Stockfish's hash gets too full, the worker restarts the search
+with a larger hash when server memory allows it. The remote worker analyzes
+until the top lines are stable, then stops automatically, with depth `60` as the
+hidden safety boundary. Stability is streamed as `unstable`, `settling`, or
+`stable` with a human-readable reason, and is based on finalized complete-depth
+MultiPV snapshots from the worker.
 
 Delete the server when done:
 

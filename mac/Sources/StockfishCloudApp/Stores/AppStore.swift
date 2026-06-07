@@ -97,7 +97,7 @@ final class AppStore {
         let lineCount = Int(newLineCount)
         let parameters = AnalysisParameters(
             threads: 8,
-            hashMb: 4096,
+            hashMb: 8192,
             multipv: lineCount,
             depth: targetDepth,
             movetimeMs: nil

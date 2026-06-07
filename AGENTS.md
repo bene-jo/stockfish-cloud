@@ -75,10 +75,10 @@ N lines updating while a job runs.
   (`sf_18` as of 2026-06-07), not an older engine and not a random development
   pre-release. Update this deliberately when a newer stable release exists.
 - `analyze-position` is the app-facing analysis command. It defaults to
-  streamed JSONL, depth `60`, `3` lines, and `4096 MB` hash.
+  streamed JSONL, depth `60`, `3` lines, and `8192 MB` hash.
 - The macOS app does not expose depth selection in the first stability-driven
-  flow. It analyzes until the live stability indicator reaches `Stable`, then
-  stops the remote analysis automatically. Depth `60` is the hidden safety
+  flow. The remote worker analyzes until the live stability indicator reaches
+  `stable`, then stops Stockfish automatically. Depth `60` is the hidden safety
   boundary if stability is not reached.
 - When `analyze-fen` / `analyze-position` use a non-local worker image, the CLI
   pulls that image before running analysis. This prevents already-running warm
@@ -233,21 +233,38 @@ boundary is reached before `stable`, keep showing the last streamed state
 state.
 
 Completed depth sample definition: a depth is sampleable only after all
-requested MultiPV lines have reported that exact depth. The worker samples
-exact-depth MultiPV snapshots, not mixed latest-line state.
+requested MultiPV lines have reported that exact depth and the engine has moved
+on to a deeper depth, because Stockfish can still revise rows while it is
+working on the same depth. At analysis completion, the worker finalizes any
+remaining complete depths. The worker samples finalized exact-depth MultiPV
+snapshots, not mixed latest-line state.
 
 Current stability parameters:
 
 - Hidden boundary: depth `60`.
-- `settling`: depth `30+`, at least `75,000,000` nodes, at least `4` complete
-  depth samples spanning `3+` depths, every displayed line has at least `8` UCI
-  plies, the first `6` UCI plies of every displayed line are unchanged, and
-  score drift is at most `0.15` pawns for line 1 and `0.25` for lines 2-3.
-- `stable`: depth `40+`, at least `150,000,000` nodes, at least `8` complete
-  depth samples spanning `6+` depths, every displayed line has at least `8` UCI
-  plies, the first `6` UCI plies of every displayed line are unchanged, and
-  score drift is at most `0.08` pawns for line 1 and `0.12` for lines 2-3.
-- `hashfull >= 900` keeps the state `unstable` with a reason to increase hash.
+- Default app/CLI hash: `8192 MB`.
+- If `hashfull >= 900` and memory allows a larger hash, the worker stops the
+  current pass, doubles the hash up to its memory-aware cap, clears hash, and
+  restarts the same position. This is preferable to running to depth `60` with a
+  saturated hash and a permanent warning.
+- `settling`: depth `32+`, at least `150,000,000` nodes, at least `6`
+  finalized complete depth samples spanning `5+` depths, every displayed line
+  has at least `8` UCI plies, the first `6` UCI plies of every displayed line
+  are unchanged, and score drift is at most `0.10` pawns for line 1 and `0.15`
+  for lines 2-3.
+- `stable`: depth `40+`, at least `300,000,000` nodes, at least `10`
+  finalized complete depth samples spanning `9+` depths, every displayed line
+  has at least `8` UCI plies, the first `6` UCI plies of every displayed line
+  are unchanged, and score drift is at most `0.06` pawns for line 1 and `0.10`
+  for lines 2-3.
+- If hash is already at the memory-aware cap and `hashfull >= 900`, stability
+  remains `unstable` with a reason explaining the hash limit.
+- Worker reasons should describe the next reachable gate. For example, between
+  depths `30` and `40`, the reason should explain why `settling` is not reached,
+  not merely say that `stable` requires depth `40+`.
+- Stability states are evidence-derived, not monotonic by fiat. `settling`
+  should be hard enough to earn that ordinary runs do not flicker casually, but
+  a real PV/eval break can still return the state to `unstable`.
 
 The minimum depth gates are confidence/evidence gates, not a theoretical claim
 that lower-depth positions cannot be stable. They prevent the UI from presenting
@@ -268,7 +285,7 @@ Worker/app analysis display conventions:
 
 - Use current stable Stockfish (`sf_18` on 2026-06-07) or newer stable releases.
 - Prefer analysis settings that are at least as accurate as the visible Lichess
-  configuration. Keep `ccx33` app analyses at `8` threads and `4096 MB` hash
+  configuration. Keep `ccx33` app analyses at `8` threads and `8192 MB` hash
   rather than copying a smaller Lichess browser hash display.
 - Display evaluations from White's perspective, with positive values meaning
   White is better.
