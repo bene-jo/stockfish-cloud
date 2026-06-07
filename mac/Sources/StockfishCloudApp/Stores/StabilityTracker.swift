@@ -3,15 +3,18 @@ import Foundation
 struct StabilityTracker {
     private struct Sample: Equatable {
         var depth: Int
-        var firstMoves: [String]
+        var movePrefixes: [[String]]
         var scores: [Int]
     }
 
-    private let minimumStableDepth = 24
-    private let stableSampleCount = 4
-    private let settlingSampleCount = 2
-    private let stableScoreWindow = 20
-    private let settlingScoreWindow = 35
+    private let minimumSettlingDepth = 30
+    private let minimumStableDepth = 40
+    private let minimumPVMoves = 8
+    private let comparedPrefixMoves = 6
+    private let stableSampleCount = 8
+    private let settlingSampleCount = 4
+    private let stableScoreWindow = 10
+    private let settlingScoreWindow = 20
 
     private var samples: [Sample] = []
     private var lastSampleDepth = 0
@@ -30,13 +33,17 @@ struct StabilityTracker {
             return .waiting
         }
 
+        guard displayedLines.allSatisfy({ $0.pv.count >= minimumPVMoves && $0.score != nil }) else {
+            return .moving
+        }
+
         if completeDepth > lastSampleDepth {
             lastSampleDepth = completeDepth
             samples.append(
                 Sample(
                     depth: completeDepth,
-                    firstMoves: displayedLines.map(firstMove),
-                    scores: displayedLines.map { $0.score ?? 0 }
+                    movePrefixes: displayedLines.map(movePrefix),
+                    scores: displayedLines.compactMap(\.score)
                 )
             )
 
@@ -57,6 +64,10 @@ struct StabilityTracker {
             return .maxDepth
         }
 
+        guard completeDepth >= minimumSettlingDepth else {
+            return .moving
+        }
+
         if isStable(requiredSamples: settlingSampleCount, scoreWindow: settlingScoreWindow) {
             return .settling
         }
@@ -64,12 +75,8 @@ struct StabilityTracker {
         return .moving
     }
 
-    private func firstMove(for line: PrincipalVariation) -> String {
-        if let san = line.san?.first, !san.isEmpty {
-            return san
-        }
-
-        return line.pv.first ?? ""
+    private func movePrefix(for line: PrincipalVariation) -> [String] {
+        Array(line.pv.prefix(comparedPrefixMoves))
     }
 
     private func isStable(requiredSamples: Int, scoreWindow: Int) -> Bool {
@@ -83,7 +90,7 @@ struct StabilityTracker {
         }
 
         for sample in recentSamples {
-            guard sample.firstMoves == first.firstMoves else {
+            guard sample.movePrefixes == first.movePrefixes else {
                 return false
             }
 

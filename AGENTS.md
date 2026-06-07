@@ -221,12 +221,15 @@ The stability indicator is derived in the app from completed depth samples for
 all requested MultiPV lines. It currently uses:
 
 - `Waiting`: not all requested lines have reported a depth yet.
-- `Still Moving`: depth is below the minimum stable depth or top moves/scores
-  are still changing.
-- `Settling`: the last two completed depth samples keep the same first moves
-  with modest score drift.
-- `Stable`: the last four completed depth samples keep the same first moves
-  with small score drift; the app auto-stops the remote analysis here.
+- `Still Moving`: depth is below the minimum thresholds, PVs are still too
+  short, or top moves/scores are still changing.
+- `Settling`: at depth `30+`, the last four completed depth samples keep the
+  same first six UCI plies for every requested line, with at most `0.20` pawn
+  score drift.
+- `Stable`: at depth `40+`, the last eight completed depth samples keep the
+  same first six UCI plies for every requested line, each line has at least
+  eight UCI plies, and score drift is at most `0.10` pawns; the app auto-stops
+  the remote analysis here.
 - `Max Depth`: the hidden depth boundary was reached before stability.
 
 The faster prebuilt-image start path is:
