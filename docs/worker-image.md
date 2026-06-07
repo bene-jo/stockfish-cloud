@@ -17,6 +17,13 @@ The workflow also publishes a commit-specific tag:
 ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:<git-sha>
 ```
 
+It also publishes an optimized Genoa/AVX-512 image:
+
+```text
+ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa
+ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa-<git-sha>
+```
+
 ## Publishing
 
 Publishing is handled by `.github/workflows/worker-image.yml`.
@@ -32,12 +39,26 @@ The default image is built with:
 ```text
 STOCKFISH_REF=sf_18
 STOCKFISH_ARCH=x86-64-avx2
+STOCKFISH_BUILD_TARGET=profile-build
 ```
 
 `x86-64-avx2` keeps `latest` compatible with the current `ccx33` default. Faster
 CPU-specific images can be built by overriding `STOCKFISH_ARCH`, but they should
 use separate tags and only run on server types that expose the required
 instructions.
+
+The `genoa` image is built with:
+
+```text
+STOCKFISH_REF=sf_18
+STOCKFISH_ARCH=x86-64-vnni512
+STOCKFISH_BUILD_TARGET=build
+```
+
+It requires a CPU with AVX-512/VNNI support, such as the tested Hetzner `cpx52`
+Genoa host. It deliberately uses `build` instead of `profile-build` because
+Stockfish profile builds execute the compiled binary during the Docker build,
+and GitHub-hosted runners may not expose the required AVX-512/VNNI instructions.
 
 ## Using a prebuilt image
 
@@ -47,6 +68,15 @@ Start a server with the published image:
 ./bin/stockfish-cloud start \
   --server-type ccx33 \
   --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest \
+  --skip-build
+```
+
+Start a Genoa-capable server with the optimized image:
+
+```bash
+./bin/stockfish-cloud start \
+  --server-type cpx52 \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa \
   --skip-build
 ```
 

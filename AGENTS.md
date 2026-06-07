@@ -339,10 +339,14 @@ Performance investigation on 2026-06-07:
   `x86-64-vnni512`, and `native` builds improved real workload throughput over
   AVX2. Best observed representative run was `native`, `Threads=12`,
   `Hash=14336 MB`: about `12.2M nps`.
-- Practical performance direction: investigate `cpx52` plus a separate
+- Practical performance direction: validate `cpx52` plus the separate
   Genoa/AVX-512 worker image tag as a faster option. Do not replace the
   compatible `latest` image with an AVX-512/VNNI binary unless server selection
   guarantees the CPU supports it.
+- The Genoa image uses `STOCKFISH_ARCH=x86-64-vnni512`. The best explicit
+  target in the short representative probe was `x86-64-vnni512`; `native`
+  varied slightly higher in one run but is not suitable for CI because it would
+  target the GitHub runner CPU instead of the Hetzner Genoa host.
 - Open risk: `cpx52` is shared CPU, so longer searches need variance/fair-use
   validation before making it the product default despite the strong short-run
   nps/cost result.
@@ -359,8 +363,10 @@ The repo has a prebuilt-image path:
 - `docs/worker-image.md` documents the image name and usage.
 - `start --skip-build --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest`
   pulls the image on the Hetzner server instead of compiling Stockfish there.
-- `docker/Dockerfile` accepts `STOCKFISH_ARCH`; the workflow keeps
-  `stockfish-worker:latest` on `x86-64-avx2` for `ccx33` compatibility.
+- `docker/Dockerfile` accepts `STOCKFISH_ARCH` and
+  `STOCKFISH_BUILD_TARGET`. The workflow keeps `stockfish-worker:latest` on
+  `x86-64-avx2` with `profile-build` for `ccx33` compatibility, and publishes
+  `stockfish-worker:genoa` with `x86-64-vnni512` and plain `build`.
 
 ## State Model
 

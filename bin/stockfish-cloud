@@ -391,6 +391,7 @@ rates = {
     "ccx13": 0.0305,
     "ccx33": 0.1191,
     "ccx43": 0.238357,
+    "cpx52": 0.069615,
 }
 
 created = server.get("created")

@@ -31,7 +31,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push worker image
+      - name: Build and push compatible worker image
         uses: docker/build-push-action@v7
         with:
           context: docker
@@ -42,5 +42,21 @@ jobs:
           build-args: |
             STOCKFISH_REF=sf_18
             STOCKFISH_ARCH=x86-64-avx2
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            STOCKFISH_BUILD_TARGET=profile-build
+          cache-from: type=gha,scope=worker-compatible
+          cache-to: type=gha,mode=max,scope=worker-compatible
+
+      - name: Build and push Genoa worker image
+        uses: docker/build-push-action@v7
+        with:
+          context: docker
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/stockfish-worker:genoa
+            ghcr.io/${{ github.repository }}/stockfish-worker:genoa-${{ github.sha }}
+          build-args: |
+            STOCKFISH_REF=sf_18
+            STOCKFISH_ARCH=x86-64-vnni512
+            STOCKFISH_BUILD_TARGET=build
+          cache-from: type=gha,scope=worker-genoa
+          cache-to: type=gha,mode=max,scope=worker-genoa
