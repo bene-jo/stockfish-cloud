@@ -44,13 +44,16 @@ N lines updating while a job runs.
 
 - Hetzner CLI context: `stockfish-cloud`.
 - Hetzner SSH key name: `macbook-stockfish-cloud`.
-- Confirmed working server types in `fsn1`: `ccx13`, `ccx33`.
+- Confirmed working server types in `fsn1`: `ccx13`, `ccx33`, `cpx52`,
+  `cpx62`.
 - Current Hetzner account limit allows `ccx33` but blocks `ccx43` with
   `dedicated core limit exceeded`.
 - Default reusable server name: `stockfish-cloud`.
 - GitHub repo: `https://github.com/bene-jo/stockfish-cloud`.
 - Published worker image:
   `ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest`.
+- Published Genoa-optimized worker image:
+  `ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa`.
 - First worker-image workflow run succeeded on 2026-06-07:
   `https://github.com/bene-jo/stockfish-cloud/actions/runs/27076443609`.
 - GitHub Actions were updated to current Node.js 24-compatible major versions
@@ -347,9 +350,31 @@ Performance investigation on 2026-06-07:
   target in the short representative probe was `x86-64-vnni512`; `native`
   varied slightly higher in one run but is not suitable for CI because it would
   target the GitHub runner CPU instead of the Hetzner Genoa host.
-- Open risk: `cpx52` is shared CPU, so longer searches need variance/fair-use
-  validation before making it the product default despite the strong short-run
-  nps/cost result.
+- The published `stockfish-worker:genoa` image was validated on `cpx52` and
+  `cpx62` on 2026-06-07.
+- `cpx52` with `stockfish-worker:genoa`, `Threads=12`, and the representative
+  MultiPV 3 workload:
+  - Bench: about `14.4M nps`.
+  - 60 second analysis: about `11.2M nps`, depth `33`, `673M` nodes, hash capped
+    to `11728 MB`, final `hashfull=303`.
+  - 5 minute analysis: about `10.9M nps`, depth `41`, `3.28B` nodes, final
+    `hashfull=920`. This is too close to saturation for trusted long stability.
+- `cpx62` in `fsn1` presented as shared AMD EPYC Genoa with `16` visible cores,
+  one thread per core, AVX-512/VNNI flags exposed, and `32 GB` RAM. EU gross
+  hourly price at probe time was `0.096271 EUR/h`, still below `ccx33`.
+- `cpx62` with `stockfish-worker:genoa`, `Threads=16`, and the representative
+  MultiPV 3 workload:
+  - Bench: about `17.9M nps`.
+  - 60 second analysis: about `14.1M nps`, depth `32`, `848M` nodes,
+    `14336 MB` hash, final `hashfull=307`.
+  - 5 minute analysis with requested `24576 MB` hash was memory-capped to
+    `15665 MB`: about `14.2M nps`, depth `41`, `4.25B` nodes, final
+    `hashfull=909`.
+- Current interpretation: `cpx62` plus the Genoa image is the strongest
+  performance candidate measured so far, and probably the better experimental
+  app server type than `cpx52`. Do not make it the unquestioned default yet:
+  shared CPU variance and long-run hash saturation still need product decisions
+  or worker changes.
 
 ## Worker Image
 
@@ -428,6 +453,8 @@ API-confirmed Germany / Finland hourly prices including VAT:
 - `ccx13`: about `0.0305 EUR/h`.
 - `ccx33`: about `0.1191 EUR/h`.
 - `ccx43`: about `0.238357 EUR/h`.
+- `cpx52`: about `0.069615 EUR/h`.
+- `cpx62`: about `0.096271 EUR/h`.
 
 Cost UX should be quiet but always visible while a server exists:
 

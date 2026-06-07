@@ -55,10 +55,11 @@ STOCKFISH_ARCH=x86-64-vnni512
 STOCKFISH_BUILD_TARGET=build
 ```
 
-It requires a CPU with AVX-512/VNNI support, such as the tested Hetzner `cpx52`
-Genoa host. It deliberately uses `build` instead of `profile-build` because
-Stockfish profile builds execute the compiled binary during the Docker build,
-and GitHub-hosted runners may not expose the required AVX-512/VNNI instructions.
+It requires a CPU with AVX-512/VNNI support, such as the tested Hetzner
+`cpx52`/`cpx62` Genoa hosts. It deliberately uses `build` instead of
+`profile-build` because Stockfish profile builds execute the compiled binary
+during the Docker build, and GitHub-hosted runners may not expose the required
+AVX-512/VNNI instructions.
 
 ## Using a prebuilt image
 
@@ -75,10 +76,15 @@ Start a Genoa-capable server with the optimized image:
 
 ```bash
 ./bin/stockfish-cloud start \
-  --server-type cpx52 \
+  --server-type cpx62 \
   --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa \
   --skip-build
 ```
+
+The `genoa` image is only safe on compatible CPUs. Do not use it on the default
+`ccx33` server. The tested `cpx52`/`cpx62` hosts are shared CPU instances, so
+validate sustained throughput and hash saturation before making either the app
+default.
 
 With `--skip-build`, the CLI installs Docker on the Hetzner server and pulls the
 image instead of uploading `docker/` and compiling Stockfish there.

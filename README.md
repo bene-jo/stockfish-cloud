@@ -10,7 +10,7 @@ no standby compute costs. The local Mac stays free.
 
 - Hetzner CLI automation works.
 - Remote Stockfish benchmark and FEN analysis have been smoke-tested.
-- `ccx13`, `ccx33`, and `cpx52` work in `fsn1`.
+- `ccx13`, `ccx33`, `cpx52`, and `cpx62` work in `fsn1`.
 - `ccx43` is currently blocked by the Hetzner dedicated-core project limit.
 - A GitHub Actions workflow publishes compatible and Genoa-optimized worker
   images to GHCR.
@@ -121,11 +121,11 @@ The worker image is published to GHCR:
   --skip-build
 ```
 
-For the faster Genoa/AVX-512 path tested on `cpx52`, use:
+For the faster Genoa/AVX-512 path tested on `cpx52`/`cpx62`, use:
 
 ```bash
 ./bin/stockfish-cloud start \
-  --server-type cpx52 \
+  --server-type cpx62 \
   --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa \
   --skip-build
 ```
