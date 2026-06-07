@@ -23,6 +23,7 @@ class EngineLine:
     pv: list[str]
     nodes: int | None
     nps: int | None
+    hashfull: int | None
 
 
 @dataclass
@@ -31,6 +32,296 @@ class EngineMetadata:
     version: str | None
     eval_file: str | None
     nnue: bool
+
+
+@dataclass
+class StabilitySample:
+    depth: int
+    move_prefixes: list[list[str]]
+    pv_lengths: list[int]
+    scores: list[int]
+    nodes: int | None
+    hashfull: int | None
+
+
+@dataclass
+class StabilityResult:
+    state: str
+    reason: str
+    complete_depth: int | None = None
+    sample_count: int = 0
+    depth_span: int = 0
+    nodes: int | None = None
+    hashfull: int | None = None
+
+
+class StabilityTracker:
+    minimum_settling_depth = 30
+    minimum_stable_depth = 40
+    minimum_settling_nodes = 75_000_000
+    minimum_stable_nodes = 150_000_000
+    minimum_pv_moves = 8
+    compared_prefix_moves = 6
+    settling_sample_count = 4
+    stable_sample_count = 8
+    settling_depth_span = 3
+    stable_depth_span = 6
+    settling_score_windows = [15, 25, 25, 30, 30]
+    stable_score_windows = [8, 12, 12, 15, 15]
+    hashfull_warning_threshold = 900
+
+    def __init__(self, fen: str, expected_line_count: int) -> None:
+        self.fen = fen
+        self.expected_line_count = expected_line_count
+        self.lines_by_depth: dict[int, dict[int, EngineLine]] = {}
+        self.sampled_depths: set[int] = set()
+        self.samples: list[StabilitySample] = []
+        self.result = StabilityResult(
+            state="unstable",
+            reason=f"Waiting for {expected_line_count} complete lines.",
+        )
+
+    def update(self, line: EngineLine) -> StabilityResult:
+        if line.depth is None or line.multipv > self.expected_line_count:
+            return self.result
+
+        depth_lines = self.lines_by_depth.setdefault(line.depth, {})
+        depth_lines[line.multipv] = line
+
+        if len(depth_lines) < self.expected_line_count:
+            self.result = StabilityResult(
+                state="unstable",
+                reason=(
+                    f"Waiting for all {self.expected_line_count} lines at depth "
+                    f"{line.depth}."
+                ),
+                complete_depth=self.complete_depth,
+                sample_count=len(self.samples),
+                depth_span=self.depth_span,
+                nodes=self.latest_nodes,
+                hashfull=self.latest_hashfull,
+            )
+            return self.result
+
+        if line.depth not in self.sampled_depths:
+            self.sampled_depths.add(line.depth)
+            self.samples.append(self.sample_from_depth(line.depth, depth_lines))
+
+        self.result = self.evaluate()
+        return self.result
+
+    @property
+    def complete_depth(self) -> int | None:
+        if not self.samples:
+            return None
+        return self.samples[-1].depth
+
+    @property
+    def depth_span(self) -> int:
+        if len(self.samples) < 2:
+            return 0
+        return self.samples[-1].depth - self.samples[0].depth
+
+    @property
+    def latest_nodes(self) -> int | None:
+        if not self.samples:
+            return None
+        return self.samples[-1].nodes
+
+    @property
+    def latest_hashfull(self) -> int | None:
+        if not self.samples:
+            return None
+        return self.samples[-1].hashfull
+
+    def sample_from_depth(
+        self,
+        depth: int,
+        depth_lines: dict[int, EngineLine],
+    ) -> StabilitySample:
+        lines = [depth_lines[index] for index in range(1, self.expected_line_count + 1)]
+        nodes_values = [line.nodes for line in lines if line.nodes is not None]
+        hashfull_values = [line.hashfull for line in lines if line.hashfull is not None]
+        return StabilitySample(
+            depth=depth,
+            move_prefixes=[
+                line.pv[: self.compared_prefix_moves]
+                for line in lines
+            ],
+            pv_lengths=[len(line.pv) for line in lines],
+            scores=[
+                score_for_white(self.fen, line.score)
+                for line in lines
+                if line.score is not None
+            ],
+            nodes=max(nodes_values) if nodes_values else None,
+            hashfull=max(hashfull_values) if hashfull_values else None,
+        )
+
+    def evaluate(self) -> StabilityResult:
+        if not self.samples:
+            return self.result
+
+        latest = self.samples[-1]
+        base = {
+            "complete_depth": latest.depth,
+            "sample_count": len(self.samples),
+            "depth_span": self.depth_span,
+            "nodes": latest.nodes,
+            "hashfull": latest.hashfull,
+        }
+
+        short_line = self.short_line(latest)
+        if short_line:
+            return StabilityResult(
+                state="unstable",
+                reason=short_line,
+                **base,
+            )
+
+        if latest.hashfull is not None and latest.hashfull >= self.hashfull_warning_threshold:
+            return StabilityResult(
+                state="unstable",
+                reason=(
+                    f"Hash is {latest.hashfull / 10:.1f}% full; increase hash "
+                    "before trusting stability."
+                ),
+                **base,
+            )
+
+        stable_failure = self.failure_reason(
+            minimum_depth=self.minimum_stable_depth,
+            minimum_nodes=self.minimum_stable_nodes,
+            required_samples=self.stable_sample_count,
+            required_depth_span=self.stable_depth_span,
+            score_windows=self.stable_score_windows,
+            label="stable",
+        )
+        if stable_failure is None:
+            return StabilityResult(
+                state="stable",
+                reason="All displayed lines converged across the stable evidence window.",
+                **base,
+            )
+
+        settling_failure = self.failure_reason(
+            minimum_depth=self.minimum_settling_depth,
+            minimum_nodes=self.minimum_settling_nodes,
+            required_samples=self.settling_sample_count,
+            required_depth_span=self.settling_depth_span,
+            score_windows=self.settling_score_windows,
+            label="settling",
+        )
+        if settling_failure is None:
+            return StabilityResult(
+                state="settling",
+                reason="Displayed lines are consistent, but stable evidence is not complete yet.",
+                **base,
+            )
+
+        return StabilityResult(
+            state="unstable",
+            reason=stable_failure,
+            **base,
+        )
+
+    def short_line(self, sample: StabilitySample) -> str | None:
+        for index, pv_length in enumerate(sample.pv_lengths, start=1):
+            if pv_length < self.minimum_pv_moves:
+                return (
+                    f"Line {index} only has {pv_length} moves; "
+                    f"stable needs {self.minimum_pv_moves}."
+                )
+        if len(sample.scores) < self.expected_line_count:
+            return "Waiting for scores on all displayed lines."
+        return None
+
+    def failure_reason(
+        self,
+        minimum_depth: int,
+        minimum_nodes: int,
+        required_samples: int,
+        required_depth_span: int,
+        score_windows: list[int],
+        label: str,
+    ) -> str | None:
+        latest = self.samples[-1]
+        if latest.depth < minimum_depth:
+            return f"Depth {latest.depth}; {label} needs depth {minimum_depth}+."
+
+        if latest.nodes is None:
+            return "Waiting for searched node count."
+
+        if latest.nodes < minimum_nodes:
+            return (
+                f"Searched {latest.nodes:,} nodes; {label} needs "
+                f"{minimum_nodes:,}."
+            )
+
+        if len(self.samples) < required_samples:
+            return (
+                f"Collected {len(self.samples)} complete depth samples; "
+                f"{label} needs {required_samples}."
+            )
+
+        recent = self.samples[-required_samples:]
+        depth_span = recent[-1].depth - recent[0].depth
+        if depth_span < required_depth_span:
+            return (
+                f"Evidence spans {depth_span} depths; {label} needs "
+                f"{required_depth_span}."
+            )
+
+        prefix_reason = self.prefix_change_reason(recent)
+        if prefix_reason:
+            return prefix_reason
+
+        score_reason = self.score_drift_reason(recent, score_windows, label)
+        if score_reason:
+            return score_reason
+
+        return None
+
+    def prefix_change_reason(self, samples: list[StabilitySample]) -> str | None:
+        reference = samples[0].move_prefixes
+        for sample in samples[1:]:
+            for index, prefix in enumerate(sample.move_prefixes, start=1):
+                if index > len(reference) or prefix != reference[index - 1]:
+                    return (
+                        f"Line {index} PV changed within the evidence window."
+                    )
+        return None
+
+    def score_drift_reason(
+        self,
+        samples: list[StabilitySample],
+        score_windows: list[int],
+        label: str,
+    ) -> str | None:
+        for line_index in range(self.expected_line_count):
+            if any(len(sample.scores) <= line_index for sample in samples):
+                return "Waiting for scores on all displayed lines."
+
+            scores = [sample.scores[line_index] for sample in samples]
+            drift = max(scores) - min(scores)
+            window = score_windows[min(line_index, len(score_windows) - 1)]
+            if drift > window:
+                return (
+                    f"Line {line_index + 1} eval drift is {drift / 100:.2f}; "
+                    f"{label} allows {window / 100:.2f}."
+                )
+        return None
+
+    def to_dict(self) -> dict:
+        return {
+            "state": self.result.state,
+            "reason": self.result.reason,
+            "completeDepth": self.result.complete_depth,
+            "sampleCount": self.result.sample_count,
+            "depthSpan": self.result.depth_span,
+            "nodes": self.result.nodes,
+            "hashfull": self.result.hashfull,
+        }
 
 
 def parse_args() -> argparse.Namespace:
@@ -133,6 +424,7 @@ def parse_info(line: str) -> EngineLine | None:
     depth = int_after("depth")
     nodes = int_after("nodes")
     nps = int_after("nps")
+    hashfull = int_after("hashfull")
 
     score_type = None
     score = None
@@ -156,6 +448,7 @@ def parse_info(line: str) -> EngineLine | None:
         pv=pv,
         nodes=nodes,
         nps=nps,
+        hashfull=hashfull,
     )
 
 
@@ -224,6 +517,7 @@ def engine_line_to_dict(line: EngineLine, fen: str) -> dict:
         "san": san_pv_for_fen(fen, line.pv),
         "nodes": line.nodes,
         "nps": line.nps,
+        "hashfull": line.hashfull,
     }
 
 
@@ -249,6 +543,7 @@ def analysis_state(
     started_at: float,
     latest_lines: dict[int, EngineLine],
     engine_metadata: EngineMetadata,
+    stability_tracker: StabilityTracker,
     status: str,
     bestmove: str | None = None,
     ponder: str | None = None,
@@ -268,6 +563,7 @@ def analysis_state(
         "targetDepth": args.depth,
         "parameters": parameters_to_dict(args),
         "engine": engine_metadata_to_dict(engine_metadata),
+        "stability": stability_tracker.to_dict(),
         "bestmove": bestmove,
         "ponder": ponder,
         "lines": sorted_engine_lines(latest_lines, args.fen),
@@ -318,6 +614,8 @@ def main() -> int:
             send(process, f"go movetime {args.movetime}")
 
         latest_lines: dict[int, EngineLine] = {}
+        stability_tracker = StabilityTracker(args.fen, args.multipv)
+        stable_stop_requested = False
         raw: list[str] = []
         bestmove = None
         ponder = None
@@ -332,6 +630,7 @@ def main() -> int:
             parsed = parse_info(line)
             if parsed:
                 latest_lines[parsed.multipv] = parsed
+                stability = stability_tracker.update(parsed)
                 if args.stream:
                     emit_jsonl(
                         analysis_state(
@@ -339,10 +638,14 @@ def main() -> int:
                             started_at,
                             latest_lines,
                             engine_metadata,
+                            stability_tracker,
                             status="running",
                             updated_line=parsed,
                         )
                     )
+                if stability.state == "stable" and not stable_stop_requested:
+                    send(process, "stop")
+                    stable_stop_requested = True
 
             if line.startswith("bestmove"):
                 bestmove, ponder = parse_bestmove(line)
@@ -365,6 +668,7 @@ def main() -> int:
             ),
             "targetDepth": args.depth,
             "engine": engine_metadata_to_dict(engine_metadata),
+            "stability": stability_tracker.to_dict(),
             "lines": sorted_engine_lines(latest_lines, args.fen),
             "raw": raw,
         }
@@ -375,6 +679,7 @@ def main() -> int:
                     started_at,
                     latest_lines,
                     engine_metadata,
+                    stability_tracker,
                     status="completed",
                     bestmove=bestmove,
                     ponder=ponder,

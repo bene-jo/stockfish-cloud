@@ -18,8 +18,6 @@ final class AppStore {
     private let cli: StockfishCloudCLI
     private let serverName = "stockfish-cloud"
     private let automaticMaxDepth = 60
-    private var stabilityTrackers: [String: StabilityTracker] = [:]
-    private var autoStopRequests: Set<String> = []
 
     init(cli: StockfishCloudCLI = StockfishCloudCLI()) {
         self.cli = cli
@@ -116,11 +114,11 @@ final class AppStore {
             lines: [],
             parameters: parameters,
             engine: nil,
-            stability: .waiting,
+            stability: .unstable,
+            stabilityReason: "Waiting for engine output.",
             errorMessage: nil
         )
 
-        stabilityTrackers[id] = StabilityTracker()
         positions.insert(position, at: 0)
         selectedPositionId = id
         newFEN = ""
@@ -152,10 +150,10 @@ final class AppStore {
             position.status = .running
             position.targetDepth = targetDepth
             position.parameters.depth = targetDepth
-            position.stability = .waiting
+            position.stability = .unstable
+            position.stabilityReason = "Waiting for engine output."
             position.errorMessage = nil
         }
-        autoStopRequests.remove(id)
 
         do {
             for try await event in cli.streamPosition(
@@ -165,10 +163,7 @@ final class AppStore {
                 depth: targetDepth,
                 lines: lineCount
             ) {
-                let stability = apply(event: event, to: id)
-                if stability == .stable && autoStopRequests.insert(id).inserted {
-                    try? await cli.stopPosition(server: serverName, positionId: id)
-                }
+                apply(event: event, to: id)
             }
         } catch {
             updatePosition(id: id) { position in
@@ -178,17 +173,7 @@ final class AppStore {
         }
     }
 
-    private func apply(event: AnalysisStateEvent, to id: String) -> AnalysisStability {
-        let targetDepth = event.targetDepth ?? automaticMaxDepth
-        let expectedLineCount = event.parameters.multipv
-        var tracker = stabilityTrackers[id] ?? StabilityTracker()
-        let stability = tracker.update(
-            lines: event.lines,
-            expectedLineCount: expectedLineCount,
-            targetDepth: targetDepth
-        )
-        stabilityTrackers[id] = tracker
-
+    private func apply(event: AnalysisStateEvent, to id: String) {
         updatePosition(id: id) { position in
             position.status = event.status
             position.elapsedMs = event.elapsedMs
@@ -198,11 +183,10 @@ final class AppStore {
             position.nps = event.lines.first?.nps
             position.parameters = event.parameters
             position.engine = event.engine ?? position.engine
-            position.stability = stability
+            position.stability = event.stability?.state ?? position.stability
+            position.stabilityReason = event.stability?.reason ?? position.stabilityReason
             position.errorMessage = nil
         }
-
-        return stability
     }
 
     private func updatePosition(id: String, mutate: (inout AnalysisPosition) -> Void) {

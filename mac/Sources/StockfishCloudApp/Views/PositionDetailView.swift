@@ -10,6 +10,7 @@ struct PositionDetailView: View {
                     VStack(alignment: .leading, spacing: 28) {
                         header(for: position)
                         MetricsView(position: position)
+                        StabilityReasonView(position: position)
                         TopLinesView(lines: position.lines)
                         EngineMetadataView(position: position)
 
@@ -113,9 +114,7 @@ private struct StabilityBadge: View {
             return .green
         case .settling:
             return .orange
-        case .maxDepth:
-            return .secondary
-        case .waiting, .moving:
+        case .unstable:
             return .secondary
         }
     }
@@ -126,10 +125,20 @@ private struct StabilityBadge: View {
             return .green.opacity(0.12)
         case .settling:
             return .orange.opacity(0.12)
-        case .maxDepth:
+        case .unstable:
             return .secondary.opacity(0.10)
-        case .waiting, .moving:
-            return .secondary.opacity(0.10)
+        }
+    }
+}
+
+private struct StabilityReasonView: View {
+    var position: AnalysisPosition
+
+    var body: some View {
+        if position.stability != .stable {
+            Label(position.stabilityReason, systemImage: "info.circle")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 }

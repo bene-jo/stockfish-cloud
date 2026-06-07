@@ -7,26 +7,30 @@ enum PositionStatus: String, Codable {
 }
 
 enum AnalysisStability: String, Codable {
-    case waiting
-    case moving
+    case unstable
     case settling
     case stable
-    case maxDepth
 
     var label: String {
         switch self {
-        case .waiting:
-            return "Waiting"
-        case .moving:
-            return "Still Moving"
+        case .unstable:
+            return "Unstable"
         case .settling:
             return "Settling"
         case .stable:
             return "Stable"
-        case .maxDepth:
-            return "Max Depth"
         }
     }
+}
+
+struct StabilityReport: Codable, Equatable {
+    var state: AnalysisStability
+    var reason: String
+    var completeDepth: Int?
+    var sampleCount: Int?
+    var depthSpan: Int?
+    var nodes: Int?
+    var hashfull: Int?
 }
 
 struct AnalysisParameters: Codable, Equatable {
@@ -54,6 +58,7 @@ struct PrincipalVariation: Codable, Equatable, Identifiable {
     var san: [String]?
     var nodes: Int?
     var nps: Int?
+    var hashfull: Int?
 
     var id: Int { multipv }
 
@@ -79,6 +84,7 @@ struct AnalysisPosition: Identifiable, Equatable {
     var parameters: AnalysisParameters
     var engine: EngineMetadata?
     var stability: AnalysisStability
+    var stabilityReason: String
     var errorMessage: String?
 
     var isRunning: Bool {
@@ -96,6 +102,7 @@ struct AnalysisStateEvent: Codable {
     var targetDepth: Int?
     var parameters: AnalysisParameters
     var engine: EngineMetadata?
+    var stability: StabilityReport?
     var bestmove: String?
     var ponder: String?
     var lines: [PrincipalVariation]

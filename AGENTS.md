@@ -217,20 +217,41 @@ caller does not provide one. When a `positionId` is present, the remote Docker
 container is named `stockfish-position-<positionId>` so `stop-position` can stop
 it from another app action.
 
-The stability indicator is derived in the app from completed depth samples for
-all requested MultiPV lines. It currently uses:
+The stability indicator is derived by the remote worker and streamed as
+`stability` in each `analysis_state`. The macOS app must display the streamed
+state/reason and must not independently re-derive stability.
 
-- `Waiting`: not all requested lines have reported a depth yet.
-- `Still Moving`: depth is below the minimum thresholds, PVs are still too
-  short, or top moves/scores are still changing.
-- `Settling`: at depth `30+`, the last four completed depth samples keep the
-  same first six UCI plies for every requested line, with at most `0.20` pawn
-  score drift.
-- `Stable`: at depth `40+`, the last eight completed depth samples keep the
-  same first six UCI plies for every requested line, each line has at least
-  eight UCI plies, and score drift is at most `0.10` pawns; the app auto-stops
-  the remote analysis here.
-- `Max Depth`: the hidden depth boundary was reached before stability.
+Stability states are only:
+
+- `unstable`
+- `settling`
+- `stable`
+
+Each stability report includes a human-readable `reason`. If the hidden depth
+boundary is reached before `stable`, keep showing the last streamed state
+(`unstable` or `settling`) and reason; do not introduce a separate max-depth
+state.
+
+Completed depth sample definition: a depth is sampleable only after all
+requested MultiPV lines have reported that exact depth. The worker samples
+exact-depth MultiPV snapshots, not mixed latest-line state.
+
+Current stability parameters:
+
+- Hidden boundary: depth `60`.
+- `settling`: depth `30+`, at least `75,000,000` nodes, at least `4` complete
+  depth samples spanning `3+` depths, every displayed line has at least `8` UCI
+  plies, the first `6` UCI plies of every displayed line are unchanged, and
+  score drift is at most `0.15` pawns for line 1 and `0.25` for lines 2-3.
+- `stable`: depth `40+`, at least `150,000,000` nodes, at least `8` complete
+  depth samples spanning `6+` depths, every displayed line has at least `8` UCI
+  plies, the first `6` UCI plies of every displayed line are unchanged, and
+  score drift is at most `0.08` pawns for line 1 and `0.12` for lines 2-3.
+- `hashfull >= 900` keeps the state `unstable` with a reason to increase hash.
+
+The minimum depth gates are confidence/evidence gates, not a theoretical claim
+that lower-depth positions cannot be stable. They prevent the UI from presenting
+early convergence as a trustworthy stop condition.
 
 The faster prebuilt-image start path is:
 

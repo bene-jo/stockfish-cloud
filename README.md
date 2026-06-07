@@ -83,8 +83,9 @@ When using a GHCR worker image, analysis commands pull the image before running
 so an already-warm server does not keep using stale `latest` layers.
 
 For accuracy, run one analysis at a time on `ccx33`. The default analysis hash
-is `4096 MB`. The macOS app analyzes until the top lines are stable, then stops
-automatically, with depth `60` as the hidden safety boundary.
+is `4096 MB`. The remote worker analyzes until the top lines are stable, then
+stops automatically, with depth `60` as the hidden safety boundary. Stability is
+streamed as `unstable`, `settling`, or `stable` with a human-readable reason.
 
 Delete the server when done:
 
