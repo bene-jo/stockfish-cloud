@@ -80,6 +80,9 @@ persist the latest snapshot; the final snapshot has `status: "completed"` with
 White is better. Principal variations include both raw UCI moves and SAN
 notation for the app UI.
 
+When using a GHCR worker image, analysis commands pull the image before running
+so an already-warm server does not keep using stale `latest` layers.
+
 Delete the server when done:
 
 ```bash

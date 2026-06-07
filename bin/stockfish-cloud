@@ -53,7 +53,7 @@ Options:
   --ssh-key NAME        Hetzner SSH key name, default: macbook-stockfish-cloud
   --worker-image IMAGE  Docker image name, default: stockfish-cloud:local
   --skip-build          Pull/use --worker-image instead of building local docker/
-  --no-pull             With --skip-build, do not run docker pull first
+  --no-pull             With a remote worker image, do not run docker pull first
   --bench-hash MB       Stockfish bench hash size, default: 128
   --bench-threads N     Stockfish bench threads, default: 8
   --bench-depth N       Stockfish bench depth, default: 13
@@ -415,6 +415,11 @@ run_analyze_fen() {
 
   [[ -n "${ANALYZE_FEN}" ]] || die "Missing required --fen"
   resolve_server_ip
+
+  if [[ "${WORKER_IMAGE}" != "stockfish-cloud:local" && "${PULL_IMAGE}" == "true" ]]; then
+    echo "Pulling Stockfish container ${WORKER_IMAGE} on ${SERVER_NAME}..."
+    run_remote "${SERVER_IP}" "docker pull '${WORKER_IMAGE}' >/dev/null"
+  fi
 
   local depth_or_time
   if [[ -n "${ANALYZE_DEPTH}" ]]; then

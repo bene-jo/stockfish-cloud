@@ -73,6 +73,9 @@ N lines updating while a job runs.
   pre-release. Update this deliberately when a newer stable release exists.
 - `analyze-position` is the app-facing analysis command. It defaults to
   streamed JSONL, depth `40`, and `3` lines.
+- When `analyze-fen` / `analyze-position` use a non-local worker image, the CLI
+  pulls that image before running analysis. This prevents already-running warm
+  servers from using stale `latest` layers after GHCR publishes a new worker.
 - `stop-position --position-id ...` stops the named remote Docker container for
   a running analysis. Stop is an action, not a separate position state; terminal
   stream snapshots still use `status: "completed"`.
