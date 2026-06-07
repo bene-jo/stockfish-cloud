@@ -271,6 +271,11 @@ Current stability parameters:
 - Stability states are evidence-derived, not monotonic by fiat. `settling`
   should be hard enough to earn that ordinary runs do not flicker casually, but
   a real PV/eval break can still return the state to `unstable`.
+- Open follow-up from real probes: expose analysis pass/restart history in the
+  streamed state. If the worker restarts with a larger hash and the user stops
+  during the second pass, the latest `completeDepth` can be lower than the
+  previous pass's reached depth, which is technically correct but confusing
+  without context.
 
 The minimum depth gates are confidence/evidence gates, not a theoretical claim
 that lower-depth positions cannot be stable. They prevent the UI from presenting
