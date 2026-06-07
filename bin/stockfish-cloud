@@ -6,7 +6,7 @@ if [[ -n "${COMMAND}" ]]; then
   shift
 fi
 
-SERVER_TYPE="ccx33"
+SERVER_TYPE="cpx62"
 LOCATION="fsn1"
 SSH_KEY="macbook-stockfish-cloud"
 IMAGE="ubuntu-24.04"
@@ -14,11 +14,11 @@ SERVER_NAME="stockfish-cloud"
 SERVER_NAME_EXPLICIT="false"
 SSH_USER="root"
 BENCH_HASH_MB="128"
-BENCH_THREADS="8"
+BENCH_THREADS="16"
 BENCH_DEPTH="13"
 ANALYZE_FEN=""
-ANALYZE_HASH_MB="14336"
-ANALYZE_THREADS="8"
+ANALYZE_HASH_MB="24576"
+ANALYZE_THREADS="16"
 ANALYZE_MULTIPV="1"
 ANALYZE_DEPTH=""
 ANALYZE_MOVETIME_MS="10000"
@@ -48,19 +48,19 @@ Usage:
 
 Options:
   --server NAME_OR_IP   Server name to create/use/delete, default: stockfish-cloud
-  --server-type TYPE    Hetzner server type, default: ccx33
+  --server-type TYPE    Hetzner server type, default: cpx62
   --location LOCATION   Hetzner location, default: fsn1
   --ssh-key NAME        Hetzner SSH key name, default: macbook-stockfish-cloud
   --worker-image IMAGE  Docker image name, default: stockfish-cloud:local
   --skip-build          Pull/use --worker-image instead of building local docker/
   --no-pull             With a remote worker image, do not run docker pull first
   --bench-hash MB       Stockfish bench hash size, default: 128
-  --bench-threads N     Stockfish bench threads, default: 8
+  --bench-threads N     Stockfish bench threads, default: 16
   --bench-depth N       Stockfish bench depth, default: 13
   --fen FEN             FEN to analyze
   --position-id ID      Stable position/job id for app-facing commands
-  --threads N           Analysis threads, default: 8
-  --hash MB             Analysis hash size, default: 14336
+  --threads N           Analysis threads, default: 16
+  --hash MB             Analysis hash size, default: 24576
   --multipv N           Number of principal variations, default: 1
   --lines N             Alias for --multipv
   --depth N             Analyze to fixed depth
@@ -71,12 +71,12 @@ Options:
   -h, --help            Show this help
 
 Example:
-  ./bin/stockfish-cloud start --server-type ccx33 --location fsn1
-  ./bin/stockfish-cloud analyze-fen --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" --multipv 3
-  ./bin/stockfish-cloud analyze-position --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  ./bin/stockfish-cloud start --server-type cpx62 --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa --skip-build
+  ./bin/stockfish-cloud analyze-fen --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" --multipv 3
+  ./bin/stockfish-cloud analyze-position --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
   ./bin/stockfish-cloud stop-position --position-id position-1
   ./bin/stockfish-cloud delete
-  ./bin/stockfish-cloud bench --server-type ccx33 --location fsn1
+  ./bin/stockfish-cloud bench --server-type cpx62 --location fsn1
 USAGE
 }
 

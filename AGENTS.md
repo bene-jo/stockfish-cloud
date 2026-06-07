@@ -64,7 +64,7 @@ N lines updating while a job runs.
   `start --skip-build --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest`.
 - Analysis jobs should reuse a warm server and must not delete it automatically;
   users often want to run several positions back to back.
-- For accuracy on `ccx33`, run only one Stockfish analysis at a time. The app
+- For accuracy on `cpx62`, run only one Stockfish analysis at a time. The app
   disables new analyses while one is running, and the CLI refuses to start a new
   labeled analysis container if another one is already running.
 - `analyze-fen --stream` emits JSONL `analysis_state` snapshots. The app should
@@ -77,8 +77,9 @@ N lines updating while a job runs.
 - The worker image should use the current official stable Stockfish release
   (`sf_18` as of 2026-06-07), not an older engine and not a random development
   pre-release. Update this deliberately when a newer stable release exists.
-- `analyze-position` is the app-facing analysis command. It defaults to
-  streamed JSONL, depth `60`, `3` lines, and `14336 MB` hash.
+- `analyze-position` is the app-facing analysis command. The macOS app runs it
+  with streamed JSONL, depth `60`, `3` lines, `16` threads, and requested
+  `24576 MB` hash on the `stockfish-worker:genoa` image.
 - The macOS app does not expose depth selection in the first stability-driven
   flow. The remote worker analyzes until the live stability indicator reaches
   `stable`, then stops Stockfish automatically. Depth `60` is the hidden safety
@@ -146,7 +147,8 @@ page. The core UX is operational and dense enough for repeated use.
 
 Expected controls:
 
-- Server type selector: `ccx13`, `ccx33`, later `ccx43`.
+- Server type selector: default `cpx62`; historical/alternate options include
+  `ccx13`, `ccx33`, `cpx52`, and later `ccx43` if the account limit allows it.
 - Location selector, default `fsn1`.
 - Threads per job.
 - Hash size.
@@ -192,9 +194,9 @@ secrets and keeps the first version lean.
 The current CLI has a first reusable-server analysis shape:
 
 ```bash
-./bin/stockfish-cloud start --server-type ccx33
-./bin/stockfish-cloud analyze-fen --server stockfish-cloud --fen "<fen>" --multipv 3 --movetime 10000
-./bin/stockfish-cloud analyze-position --server stockfish-cloud --position-id position-1 --fen "<fen>"
+./bin/stockfish-cloud start --server-type cpx62 --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa --skip-build
+./bin/stockfish-cloud analyze-fen --server stockfish-cloud --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa --fen "<fen>" --multipv 3 --movetime 10000
+./bin/stockfish-cloud analyze-position --server stockfish-cloud --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa --position-id position-1 --fen "<fen>"
 ./bin/stockfish-cloud stop-position --server stockfish-cloud --position-id position-1
 ./bin/stockfish-cloud delete --server stockfish-cloud
 ```
@@ -249,14 +251,14 @@ provisional search bounds and must not be used to decide `settling` or `stable`.
 Current stability parameters:
 
 - Hidden boundary: depth `60`.
-- Default app/CLI hash: `14336 MB`.
+- Default app/CLI requested hash: `24576 MB`.
 - Worker auto-hash cap: use up to about `75%` of server RAM while preserving at
   least `2048 MB` headroom for the OS, Docker, Python, Stockfish overhead, and
   allocator safety. This is intentionally aggressive because a stockfish-cloud
   server should be optimized for one Stockfish analysis job.
 - Hash restarts are a recovery path, not a normal operating mode. Keep the
-  default hash high enough on `ccx33` that restarts should be rare in ordinary
-  analyses.
+  default requested hash high enough on `cpx62` that restarts should be rare in
+  ordinary analyses.
 - If `hashfull >= 900` and memory allows a larger hash, the worker stops the
   current pass, doubles the hash up to its memory-aware cap, clears hash, and
   restarts the same position. This is preferable to running to depth `60` with a
@@ -298,8 +300,8 @@ The faster prebuilt-image start path is:
 
 ```bash
 ./bin/stockfish-cloud start \
-  --server-type ccx33 \
-  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest \
+  --server-type cpx62 \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa \
   --skip-build
 ```
 
@@ -309,8 +311,8 @@ Worker/app analysis display conventions:
 
 - Use current stable Stockfish (`sf_18` on 2026-06-07) or newer stable releases.
 - Prefer analysis settings that are at least as accurate as the visible Lichess
-  configuration. Keep `ccx33` app analyses at `8` threads and `14336 MB` hash
-  rather than copying a smaller Lichess browser hash display.
+  configuration. Current app default is `cpx62`, `16` threads, requested
+  `24576 MB` hash, and the Genoa-optimized worker image.
 - Display evaluations from White's perspective, with positive values meaning
   White is better.
 - Display principal variations in SAN with move numbers, while preserving raw
@@ -374,11 +376,23 @@ Performance investigation on 2026-06-07:
   - 5 minute analysis before the aggressive hash-cap change, with requested
     `24576 MB` hash, was memory-capped to `15665 MB`: about `14.2M nps`,
     depth `41`, `4.25B` nodes, final `hashfull=909`.
+- After raising the auto-hash cap, `cpx62` with `stockfish-worker:genoa`,
+  `Threads=16`, requested `24576 MB` hash, and 5 minute searches was tested on
+  three positions:
+  - User stress FEN:
+    `13.5M nps`, depth `43`, `4.06B` nodes, effective hash `23498 MB`,
+    `hashfull=755`, stability `settling`.
+  - Kiwipete:
+    `14.5M nps`, depth `35`, `4.36B` nodes, effective hash `23498 MB`,
+    `hashfull=836`, stability `unstable` because eval drift remained high, not
+    because of hash saturation.
+  - Start position:
+    stopped after about `160s` at `stable`, `12.6M nps`, depth `43`,
+    `2.00B` nodes, effective hash `23498 MB`, `hashfull=466`.
 - Current interpretation: `cpx62` plus the Genoa image is the strongest
-  performance candidate measured so far, and probably the better experimental
-  app server type than `cpx52`. Do not make it the unquestioned default yet:
-  shared CPU variance and long-run hash saturation still need product decisions
-  or worker changes.
+  performance candidate measured so far and is now the app default. Remaining
+  risk: it is still a shared CPU server, so continue watching for variance over
+  real use.
 
 ## Worker Image
 

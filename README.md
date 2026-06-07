@@ -28,9 +28,11 @@ Start and prepare a reusable server:
 
 ```bash
 ./bin/stockfish-cloud start \
-  --server-type ccx33 \
+  --server-type cpx62 \
   --location fsn1 \
-  --ssh-key macbook-stockfish-cloud
+  --ssh-key macbook-stockfish-cloud \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa \
+  --skip-build
 ```
 
 Analyze a position:
@@ -38,9 +40,10 @@ Analyze a position:
 ```bash
 ./bin/stockfish-cloud analyze-fen \
   --server stockfish-cloud \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa \
   --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" \
-  --threads 8 \
-  --hash 14336 \
+  --threads 16 \
+  --hash 24576 \
   --multipv 3 \
   --movetime 10000
 ```
@@ -50,6 +53,7 @@ Analyze a UI-style position with live JSONL state:
 ```bash
 ./bin/stockfish-cloud analyze-position \
   --server stockfish-cloud \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa \
   --position-id position-1 \
   --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" \
   --lines 3
@@ -68,6 +72,7 @@ Stream live analysis state updates as JSONL:
 ```bash
 ./bin/stockfish-cloud analyze-fen \
   --server stockfish-cloud \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa \
   --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" \
   --multipv 3 \
   --movetime 10000 \
@@ -83,8 +88,8 @@ notation for the app UI.
 When using a GHCR worker image, analysis commands pull the image before running
 so an already-warm server does not keep using stale `latest` layers.
 
-For accuracy, run one analysis at a time on `ccx33`. The default analysis hash
-is `14336 MB`, high enough that hash restarts should be rare on `ccx33`. If
+For accuracy, run one analysis at a time on `cpx62`. The default analysis hash
+is `24576 MB`; the worker caps it to a memory-safe value based on server RAM. If
 Stockfish's hash still gets too full, the worker restarts the search with a
 larger hash when server memory allows it. The remote worker analyzes until the
 top-line eval landscape is stable, then stops automatically, with depth `60` as
@@ -116,8 +121,8 @@ The worker image is published to GHCR:
 
 ```bash
 ./bin/stockfish-cloud start \
-  --server-type ccx33 \
-  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest \
+  --server-type cpx62 \
+  --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa \
   --skip-build
 ```
 

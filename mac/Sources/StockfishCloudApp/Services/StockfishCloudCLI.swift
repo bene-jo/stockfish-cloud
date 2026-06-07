@@ -52,9 +52,9 @@ struct StockfishCloudCLI {
         _ = try await run(arguments: [
             "start",
             "--server", server,
-            "--server-type", "ccx33",
+            "--server-type", "cpx62",
             "--location", "fsn1",
-            "--worker-image", "ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest",
+            "--worker-image", "ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa",
             "--skip-build"
         ])
     }
@@ -96,11 +96,11 @@ struct StockfishCloudCLI {
             process.arguments = [
                 "analyze-position",
                 "--server", server,
-                "--worker-image", "ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest",
+                "--worker-image", "ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:genoa",
                 "--position-id", positionId,
                 "--fen", fen,
-                "--threads", "8",
-                "--hash", "14336",
+                "--threads", "16",
+                "--hash", "24576",
                 "--depth", "\(depth)",
                 "--lines", "\(lines)"
             ]

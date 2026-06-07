@@ -42,7 +42,7 @@ STOCKFISH_ARCH=x86-64-avx2
 STOCKFISH_BUILD_TARGET=profile-build
 ```
 
-`x86-64-avx2` keeps `latest` compatible with the current `ccx33` default. Faster
+`x86-64-avx2` keeps `latest` compatible with older `ccx33` runs. Faster
 CPU-specific images can be built by overriding `STOCKFISH_ARCH`, but they should
 use separate tags and only run on server types that expose the required
 instructions.
@@ -81,10 +81,9 @@ Start a Genoa-capable server with the optimized image:
   --skip-build
 ```
 
-The `genoa` image is only safe on compatible CPUs. Do not use it on the default
-`ccx33` server. The tested `cpx52`/`cpx62` hosts are shared CPU instances, so
-validate sustained throughput and hash saturation before making either the app
-default.
+The `genoa` image is only safe on compatible CPUs. Do not use it on `ccx33`.
+The app default is currently `cpx62`, but `cpx52`/`cpx62` are shared CPU
+instances, so keep watching sustained throughput variance in real use.
 
 With `--skip-build`, the CLI installs Docker on the Hetzner server and pulls the
 image instead of uploading `docker/` and compiling Stockfish there.
