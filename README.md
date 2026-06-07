@@ -44,6 +44,25 @@ Analyze a position:
   --movetime 10000
 ```
 
+Analyze a UI-style position with live JSONL state:
+
+```bash
+./bin/stockfish-cloud analyze-position \
+  --server stockfish-cloud \
+  --position-id position-1 \
+  --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" \
+  --depth 40 \
+  --lines 3
+```
+
+Stop a running position:
+
+```bash
+./bin/stockfish-cloud stop-position \
+  --server stockfish-cloud \
+  --position-id position-1
+```
+
 Stream live analysis state updates as JSONL:
 
 ```bash
@@ -69,6 +88,12 @@ Always check for leftover servers:
 
 ```bash
 hcloud server list
+```
+
+Get app-facing server state and estimated live cost:
+
+```bash
+./bin/stockfish-cloud status --json
 ```
 
 ## Fast Worker Image Path

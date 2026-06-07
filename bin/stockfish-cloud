@@ -23,7 +23,9 @@ ANALYZE_MULTIPV="1"
 ANALYZE_DEPTH=""
 ANALYZE_MOVETIME_MS="10000"
 ANALYZE_STREAM="false"
+POSITION_ID=""
 KEEP_SERVER="false"
+JSON_OUTPUT="false"
 WORKER_IMAGE="stockfish-cloud:local"
 SKIP_BUILD="false"
 PULL_IMAGE="true"
@@ -37,6 +39,9 @@ usage() {
 Usage:
   stockfish-cloud start [options]
   stockfish-cloud analyze-fen --fen FEN [options]
+  stockfish-cloud analyze-position --fen FEN [options]
+  stockfish-cloud stop-position --position-id ID [options]
+  stockfish-cloud status [options]
   stockfish-cloud delete [options]
   stockfish-cloud list
   stockfish-cloud bench [options]
@@ -53,18 +58,23 @@ Options:
   --bench-threads N     Stockfish bench threads, default: 8
   --bench-depth N       Stockfish bench depth, default: 13
   --fen FEN             FEN to analyze
+  --position-id ID      Stable position/job id for app-facing commands
   --threads N           Analysis threads, default: 8
   --hash MB             Analysis hash size, default: 256
   --multipv N           Number of principal variations, default: 1
+  --lines N             Alias for --multipv
   --depth N             Analyze to fixed depth
   --movetime MS         Analyze for fixed milliseconds, default: 10000
   --stream              Emit live analysis updates as JSONL
+  --json                Emit JSON where supported
   --keep-server         For bench only: do not delete the temporary server
   -h, --help            Show this help
 
 Example:
   ./bin/stockfish-cloud start --server-type ccx33 --location fsn1
   ./bin/stockfish-cloud analyze-fen --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" --multipv 3
+  ./bin/stockfish-cloud analyze-position --fen "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  ./bin/stockfish-cloud stop-position --position-id position-1
   ./bin/stockfish-cloud delete
   ./bin/stockfish-cloud bench --server-type ccx33 --location fsn1
 USAGE
@@ -127,6 +137,10 @@ parse_args() {
         ANALYZE_FEN="${2:?Missing value for --fen}"
         shift 2
         ;;
+      --position-id)
+        POSITION_ID="${2:?Missing value for --position-id}"
+        shift 2
+        ;;
       --threads)
         ANALYZE_THREADS="${2:?Missing value for --threads}"
         shift 2
@@ -137,6 +151,10 @@ parse_args() {
         ;;
       --multipv)
         ANALYZE_MULTIPV="${2:?Missing value for --multipv}"
+        shift 2
+        ;;
+      --lines)
+        ANALYZE_MULTIPV="${2:?Missing value for --lines}"
         shift 2
         ;;
       --depth)
@@ -151,6 +169,10 @@ parse_args() {
         ;;
       --stream)
         ANALYZE_STREAM="true"
+        shift
+        ;;
+      --json)
+        JSON_OUTPUT="true"
         shift
         ;;
       --keep-server)
@@ -315,6 +337,78 @@ shell_quote() {
   printf "%q" "$1"
 }
 
+position_container_name() {
+  local raw_id="$1"
+  local sanitized
+
+  sanitized="$(printf "%s" "${raw_id}" | tr -c '[:alnum:]_.-' '-')"
+  sanitized="${sanitized#-}"
+  sanitized="${sanitized%-}"
+  [[ -n "${sanitized}" ]] || die "Position id must contain at least one letter or number"
+
+  printf "stockfish-position-%s" "${sanitized}"
+}
+
+run_status() {
+  require_command hcloud
+  require_command python3
+  parse_args "$@"
+
+  local server_json
+  if ! server_json="$(hcloud server describe "${SERVER_NAME}" -o json 2>/dev/null)"; then
+    python3 - "${SERVER_NAME}" <<'PY'
+import json
+import sys
+
+print(json.dumps({
+    "server": sys.argv[1],
+    "status": "offline",
+    "running": False,
+    "uptimeSeconds": 0,
+    "liveCostEur": 0.0,
+    "hourlyRateEur": None,
+}))
+PY
+    return
+  fi
+
+  python3 - "${server_json}" <<'PY'
+from datetime import datetime, timezone
+import json
+import sys
+
+server = json.loads(sys.argv[1])
+rates = {
+    "ccx13": 0.0305,
+    "ccx33": 0.1191,
+    "ccx43": 0.238357,
+}
+
+created = server.get("created")
+created_at = None
+uptime_seconds = 0
+if created:
+    created_at = datetime.fromisoformat(created.replace("Z", "+00:00"))
+    uptime_seconds = max(0, round((datetime.now(timezone.utc) - created_at).total_seconds()))
+
+server_type = (server.get("server_type") or {}).get("name")
+hourly_rate = rates.get(server_type)
+live_cost = round((uptime_seconds / 3600) * hourly_rate, 6) if hourly_rate is not None else None
+
+print(json.dumps({
+    "server": server.get("name"),
+    "status": server.get("status"),
+    "running": server.get("status") == "running",
+    "serverType": server_type,
+    "location": (server.get("location") or {}).get("name"),
+    "createdAt": created,
+    "uptimeSeconds": uptime_seconds,
+    "hourlyRateEur": hourly_rate,
+    "liveCostEur": live_cost,
+}))
+PY
+}
+
 run_analyze_fen() {
   require_local_tools
   parse_args "$@"
@@ -334,9 +428,55 @@ run_analyze_fen() {
     stream_arg="--stream"
   fi
 
+  local position_arg=""
+  if [[ -n "${POSITION_ID}" ]]; then
+    position_arg="--position-id $(shell_quote "${POSITION_ID}")"
+  fi
+
+  local container_args=""
+  if [[ -n "${POSITION_ID}" ]]; then
+    container_args="--name $(shell_quote "$(position_container_name "${POSITION_ID}")")"
+  fi
+
   echo "Running Stockfish FEN analysis..."
   run_remote "${SERVER_IP}" \
-    "docker run --rm '${WORKER_IMAGE}' analyze-fen --fen $(shell_quote "${ANALYZE_FEN}") --threads $(shell_quote "${ANALYZE_THREADS}") --hash $(shell_quote "${ANALYZE_HASH_MB}") --multipv $(shell_quote "${ANALYZE_MULTIPV}") ${depth_or_time} ${stream_arg}"
+    "docker run --rm ${container_args} '${WORKER_IMAGE}' analyze-fen --fen $(shell_quote "${ANALYZE_FEN}") --threads $(shell_quote "${ANALYZE_THREADS}") --hash $(shell_quote "${ANALYZE_HASH_MB}") --multipv $(shell_quote "${ANALYZE_MULTIPV}") ${depth_or_time} ${stream_arg} ${position_arg}"
+}
+
+run_analyze_position() {
+  ANALYZE_DEPTH="40"
+  ANALYZE_MOVETIME_MS=""
+  ANALYZE_MULTIPV="3"
+  ANALYZE_STREAM="true"
+
+  if [[ -z "${POSITION_ID}" ]]; then
+    POSITION_ID="position-$(date +%Y%m%d-%H%M%S)"
+  fi
+
+  run_analyze_fen "$@"
+}
+
+run_stop_position() {
+  require_local_tools
+  require_command python3
+  parse_args "$@"
+
+  [[ -n "${POSITION_ID}" ]] || die "Missing required --position-id"
+  resolve_server_ip
+
+  local container_name
+  container_name="$(position_container_name "${POSITION_ID}")"
+
+  echo "Stopping Stockfish position ${POSITION_ID}..."
+  if run_remote "${SERVER_IP}" "docker stop $(shell_quote "${container_name}") >/dev/null 2>&1"; then
+    if [[ "${JSON_OUTPUT}" == "true" ]]; then
+      printf '{"positionId":%s,"status":"completed"}\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "${POSITION_ID}")"
+    else
+      echo "Position ${POSITION_ID} stopped."
+    fi
+  else
+    die "Could not stop running container for position ${POSITION_ID}"
+  fi
 }
 
 run_delete() {
@@ -359,8 +499,17 @@ case "${COMMAND}" in
   bench)
     run_bench "$@"
     ;;
+  status)
+    run_status "$@"
+    ;;
   analyze-fen)
     run_analyze_fen "$@"
+    ;;
+  analyze-position)
+    run_analyze_position "$@"
+    ;;
+  stop-position)
+    run_stop_position "$@"
     ;;
   delete)
     run_delete "$@"

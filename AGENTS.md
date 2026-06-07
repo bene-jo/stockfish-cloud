@@ -21,9 +21,8 @@ Start here when taking over without the chat context:
 
 1. Read this `AGENTS.md`, then `README.md`, then `docs/worker-image.md`.
    Also read `docs/mac-app-ui-reference.md` before building the macOS app UI.
-2. Run `git status --short --untracked-files=all`; the repo is currently a new
-   local Git repo and the project files are expected to be untracked until the
-   first commit.
+2. Run `git status --short --untracked-files=all`; the repo should normally be
+   clean on `main` unless the current thread is actively editing files.
 3. Run `hcloud server list` before and after any remote test. There should be no
    running servers unless the user intentionally started one.
 4. Do not assume `ccx43` works yet. The current Hetzner dedicated-core project
@@ -33,9 +32,9 @@ Start here when taking over without the chat context:
 
 Recommended next implementation sequence:
 
-1. Add a simple multi-job queue around the existing reusable-server lifecycle.
-2. Add server/job cost guardrails.
-3. Scaffold the native macOS app under `mac/` using the available macOS skills.
+1. Verify the new app-facing backend commands on a temporary `ccx13` server:
+   `status --json`, `analyze-position`, and `stop-position`.
+2. Scaffold the native macOS app under `mac/` using the available macOS skills.
 
 Open product requirement to preserve: the macOS app must show live analysis,
 similar in spirit to Lichess, with current eval, current depth/nps, and the top
@@ -65,6 +64,13 @@ N lines updating while a job runs.
 - `analyze-fen --stream` emits JSONL `analysis_state` snapshots. The app should
   persist the latest snapshot as state; the final snapshot has
   `status: "completed"` with `bestmove` and `ponder` set.
+- `analyze-position` is the app-facing analysis command. It defaults to
+  streamed JSONL, depth `40`, and `3` lines.
+- `stop-position --position-id ...` stops the named remote Docker container for
+  a running analysis. Stop is an action, not a separate position state; terminal
+  stream snapshots still use `status: "completed"`.
+- `status --json` returns app-facing server status, uptime, hourly rate, and
+  estimated live cost.
 - Servers should still be deleted explicitly when no longer needed.
 - No separate product-direction markdown file is used; product direction belongs
   in this `AGENTS.md`.
@@ -91,7 +97,7 @@ Primary user flow:
 1. Paste one or more FENs.
 2. Choose analysis parameters.
 3. Start a Hetzner server and keep it warm while useful.
-4. Queue one or more positions as remote Stockfish jobs.
+4. Start one or more remote Stockfish position analyses.
 5. Watch live analysis and final results in a history list.
 6. Stop individual jobs or explicitly delete the whole server when done.
 
@@ -108,14 +114,14 @@ Expected controls:
 - Depth or movetime limit.
 - Max server runtime / cost guardrail.
 - Start server, stop server, delete server.
-- Start, stop, retry, and delete jobs.
+- Start, stop, retry, and delete positions.
 
 Expected views:
 
 - Server status: offline, creating, ready, running jobs, deleting, error.
 - Live cost panel showing current server runtime, current server estimated cost,
   hourly rate, and accumulated session cost.
-- Job list/history with each FEN, parameters, status, result, and timestamps.
+- Positions list with each FEN or opening name, status, depth, and elapsed time.
 - Live analysis view, similar in spirit to the Lichess analysis UI:
   current eval, current depth, nodes/sec, and the top N principal variations
   updating while the engine is still running.
@@ -148,6 +154,8 @@ The current CLI has a first reusable-server analysis shape:
 ```bash
 ./bin/stockfish-cloud start --server-type ccx33
 ./bin/stockfish-cloud analyze-fen --server stockfish-cloud --fen "<fen>" --multipv 3 --movetime 10000
+./bin/stockfish-cloud analyze-position --server stockfish-cloud --position-id position-1 --fen "<fen>"
+./bin/stockfish-cloud stop-position --server stockfish-cloud --position-id position-1
 ./bin/stockfish-cloud delete --server stockfish-cloud
 ```
 
@@ -156,6 +164,19 @@ use and debugging. With `--stream`, it emits JSONL `analysis_state` snapshots
 instead. Each running snapshot contains the latest parsed top lines; the final
 snapshot uses the same shape with `status: "completed"`, `bestmove`, and
 `ponder`.
+
+`analyze-position` is the app-facing wrapper around `analyze-fen`. It defaults
+to `--stream`, `--depth 40`, `--lines 3`, and a generated `positionId` if the
+caller does not provide one. When a `positionId` is present, the remote Docker
+container is named `stockfish-position-<positionId>` so `stop-position` can stop
+it from another app action.
+
+The UI `+` button next to depth should increase target depth in steps of `5`.
+Backend support is intentionally simple: a running position exposes
+`currentDepth` and `targetDepth` in stream snapshots, and a higher target depth
+can be run for the same `positionId` when the user wants more depth. If true
+in-process depth extension becomes important later, add a small command channel
+instead of building a public API.
 
 The faster prebuilt-image start path is:
 
@@ -178,7 +199,7 @@ The repo has a prebuilt-image path:
 
 - `.github/workflows/worker-image.yml` publishes to GitHub Container Registry.
 - `docs/worker-image.md` documents the image name and usage.
-- `start --skip-build --worker-image ghcr.io/<owner>/<repo>/stockfish-worker:latest`
+- `start --skip-build --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest`
   pulls the image on the Hetzner server instead of compiling Stockfish there.
 
 ## State Model
@@ -190,12 +211,11 @@ offline -> creating -> booting -> ready -> running -> deleting -> offline
                             \-> error
 ```
 
-Job lifecycle:
+Position lifecycle:
 
 ```text
-queued -> starting -> running -> completed
-                    \-> stopped
-                    \-> failed
+starting -> running -> completed
+                  \-> failed
 ```
 
 The app should treat server deletion as the strongest safety action. If anything
@@ -326,11 +346,14 @@ Key UI direction captured by the reference:
 - Right pane: selected position details only; no board in the first version.
 - Focus details on depth, time running, nodes/sec, and top lines with evals.
 - Add a small `+` button next to depth to increase target depth by `5`.
+- Do not model user-stopped positions as a separate UI state in the first
+  version; use `currentDepth` / `targetDepth` to show whether the target was
+  reached.
 - Do not include redundant parameters, raw engine output, standalone eval, or
   best-move blocks in the initial UI.
 
 ## Next Steps
 
-1. Extend the CLI from single-FEN analysis to multi-job PGN/FEN queues.
-2. Add server/job cost guardrails.
-3. Scaffold the native macOS app under `mac/`.
+1. Verify the new app-facing backend commands on a temporary `ccx13` server:
+   `status --json`, `analyze-position`, and `stop-position`.
+2. Scaffold the native macOS app under `mac/`.

@@ -18,7 +18,7 @@ case "${COMMAND}" in
     cat <<'USAGE'
 Usage:
   stockfish-worker bench [hash threads depth]
-  stockfish-worker analyze-fen --fen FEN [options] [--stream]
+  stockfish-worker analyze-fen --fen FEN [options] [--position-id ID] [--stream]
 USAGE
     ;;
   *)

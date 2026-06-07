@@ -2,10 +2,14 @@
 import argparse
 import json
 import re
+import signal
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
+
+ACTIVE_PROCESS: subprocess.Popen[str] | None = None
+STOP_REQUESTED = False
 
 
 @dataclass
@@ -28,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--multipv", type=int, default=1)
     parser.add_argument("--depth", type=int)
     parser.add_argument("--movetime", type=int)
+    parser.add_argument("--position-id")
     parser.add_argument(
         "--stream",
         action="store_true",
@@ -40,6 +45,18 @@ def send(process: subprocess.Popen[str], command: str) -> None:
     assert process.stdin is not None
     process.stdin.write(command + "\n")
     process.stdin.flush()
+
+
+def request_stop(signum: int, frame: object) -> None:
+    del signum, frame
+
+    global STOP_REQUESTED
+    STOP_REQUESTED = True
+    if ACTIVE_PROCESS and ACTIVE_PROCESS.poll() is None:
+        try:
+            send(ACTIVE_PROCESS, "stop")
+        except Exception:
+            pass
 
 
 def read_until(process: subprocess.Popen[str], marker: str) -> list[str]:
@@ -150,11 +167,18 @@ def analysis_state(
     ponder: str | None = None,
     updated_line: EngineLine | None = None,
 ) -> dict:
+    current_depth = max(
+        (line.depth for line in latest_lines.values() if line.depth is not None),
+        default=None,
+    )
     state = {
         "event": "analysis_state",
+        "positionId": args.position_id,
         "status": status,
         "fen": args.fen,
         "elapsedMs": round((time.time() - started_at) * 1000),
+        "currentDepth": current_depth,
+        "targetDepth": args.depth,
         "parameters": parameters_to_dict(args),
         "bestmove": bestmove,
         "ponder": ponder,
@@ -170,9 +194,14 @@ def emit_jsonl(event: dict) -> None:
 
 
 def main() -> int:
+    global ACTIVE_PROCESS
+
     args = parse_args()
     if not args.depth and not args.movetime:
         args.movetime = 10_000
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
 
     started_at = time.time()
     process = subprocess.Popen(
@@ -183,6 +212,7 @@ def main() -> int:
         text=True,
         bufsize=1,
     )
+    ACTIVE_PROCESS = process
 
     try:
         send(process, "uci")
@@ -236,7 +266,14 @@ def main() -> int:
             "bestmove": bestmove,
             "ponder": ponder,
             "elapsedMs": round((time.time() - started_at) * 1000),
+            "positionId": args.position_id,
+            "status": "completed",
             "parameters": parameters_to_dict(args),
+            "currentDepth": max(
+                (line.depth for line in latest_lines.values() if line.depth is not None),
+                default=None,
+            ),
+            "targetDepth": args.depth,
             "lines": sorted_engine_lines(latest_lines),
             "raw": raw,
         }
@@ -257,6 +294,7 @@ def main() -> int:
     finally:
         if process.poll() is None:
             process.kill()
+        ACTIVE_PROCESS = None
 
 
 if __name__ == "__main__":
