@@ -13,6 +13,9 @@ import chess
 
 ACTIVE_PROCESS: subprocess.Popen[str] | None = None
 STOP_REQUESTED = False
+AUTO_HASH_MEMORY_FRACTION = 0.75
+AUTO_HASH_MIN_HEADROOM_MB = 2_048
+AUTO_HASH_FALLBACK_CAP_MB = 16_384
 
 
 @dataclass
@@ -660,10 +663,11 @@ def available_auto_hash_mb(requested_hash_mb: int) -> int:
         pass
 
     if mem_total_mb is None:
-        return max(requested_hash_mb, 16_384)
+        return max(requested_hash_mb, AUTO_HASH_FALLBACK_CAP_MB)
 
-    memory_cap = max(1_024, math.floor(mem_total_mb * 0.5))
-    return min(16_384, memory_cap)
+    fraction_cap = math.floor(mem_total_mb * AUTO_HASH_MEMORY_FRACTION)
+    headroom_cap = mem_total_mb - AUTO_HASH_MIN_HEADROOM_MB
+    return max(1_024, min(fraction_cap, headroom_cap))
 
 
 def next_hash_mb(current_hash_mb: int, max_hash_mb: int) -> int | None:

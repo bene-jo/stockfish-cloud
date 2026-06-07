@@ -250,6 +250,10 @@ Current stability parameters:
 
 - Hidden boundary: depth `60`.
 - Default app/CLI hash: `14336 MB`.
+- Worker auto-hash cap: use up to about `75%` of server RAM while preserving at
+  least `2048 MB` headroom for the OS, Docker, Python, Stockfish overhead, and
+  allocator safety. This is intentionally aggressive because a stockfish-cloud
+  server should be optimized for one Stockfish analysis job.
 - Hash restarts are a recovery path, not a normal operating mode. Keep the
   default hash high enough on `ccx33` that restarts should be rare in ordinary
   analyses.
@@ -367,9 +371,9 @@ Performance investigation on 2026-06-07:
   - Bench: about `17.9M nps`.
   - 60 second analysis: about `14.1M nps`, depth `32`, `848M` nodes,
     `14336 MB` hash, final `hashfull=307`.
-  - 5 minute analysis with requested `24576 MB` hash was memory-capped to
-    `15665 MB`: about `14.2M nps`, depth `41`, `4.25B` nodes, final
-    `hashfull=909`.
+  - 5 minute analysis before the aggressive hash-cap change, with requested
+    `24576 MB` hash, was memory-capped to `15665 MB`: about `14.2M nps`,
+    depth `41`, `4.25B` nodes, final `hashfull=909`.
 - Current interpretation: `cpx62` plus the Genoa image is the strongest
   performance candidate measured so far, and probably the better experimental
   app server type than `cpx52`. Do not make it the unquestioned default yet:
