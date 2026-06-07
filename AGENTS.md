@@ -32,9 +32,7 @@ Start here when taking over without the chat context:
 
 Recommended next implementation sequence:
 
-1. Verify the new app-facing backend commands on a temporary `ccx13` server:
-   `status --json`, `analyze-position`, and `stop-position`.
-2. Scaffold the native macOS app under `mac/` using the available macOS skills.
+1. Scaffold the native macOS app under `mac/` using the available macOS skills.
 
 Open product requirement to preserve: the macOS app must show live analysis,
 similar in spirit to Lichess, with current eval, current depth/nps, and the top
@@ -71,6 +69,16 @@ N lines updating while a job runs.
   stream snapshots still use `status: "completed"`.
 - `status --json` returns app-facing server status, uptime, hourly rate, and
   estimated live cost.
+- App-facing backend commands were verified on a temporary `ccx13` server on
+  2026-06-07:
+  - `status --json` returned running status, uptime, hourly rate, and live cost.
+  - `analyze-position --position-id backend-verify-1 --depth 40 --lines 3`
+    streamed `positionId`, `currentDepth`, `targetDepth`, and top lines.
+  - `stop-position --position-id backend-verify-1 --json` stopped the named
+    remote container; the terminal stream snapshot used `status: "completed"`
+    with `currentDepth: 25` and `targetDepth: 40`.
+  - The temporary `stockfish-cloud-backend-verify` server was deleted and
+    `hcloud server list` was empty afterward.
 - Servers should still be deleted explicitly when no longer needed.
 - No separate product-direction markdown file is used; product direction belongs
   in this `AGENTS.md`.
@@ -354,6 +362,4 @@ Key UI direction captured by the reference:
 
 ## Next Steps
 
-1. Verify the new app-facing backend commands on a temporary `ccx13` server:
-   `status --json`, `analyze-position`, and `stop-position`.
-2. Scaffold the native macOS app under `mac/`.
+1. Scaffold the native macOS app under `mac/`.
