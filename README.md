@@ -96,6 +96,10 @@ automatically, with depth `60` as the hidden safety boundary. Stability is
 streamed as `unstable`, `settling`, or `stable` with a human-readable reason,
 and is based on finalized complete-depth MultiPV snapshots from the worker.
 
+When `start` creates a server, it also installs a server-side auto-delete
+timer. The server deletes itself after 90 minutes without a running analysis.
+Use `--no-idle-delete` to disable it for a manual run.
+
 Delete the server when done:
 
 ```bash

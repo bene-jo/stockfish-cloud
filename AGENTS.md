@@ -64,6 +64,10 @@ N lines updating while a job runs.
   `start --skip-build --worker-image ghcr.io/bene-jo/stockfish-cloud/stockfish-worker:latest`.
 - Analysis jobs should reuse a warm server and must not delete it automatically;
   users often want to run several positions back to back.
+- Starting a server also installs a server-side idle auto-delete timer by
+  default. It deletes the Hetzner server after `90` minutes without a running
+  analysis. This requires a root-only Hetzner token env file on the temporary
+  server; keep this documented as an explicit security tradeoff.
 - For accuracy on `cpx62`, run only one Stockfish analysis at a time. The app
   disables new analyses while one is running, and the CLI refuses to start a new
   labeled analysis container if another one is already running.
@@ -114,7 +118,8 @@ N lines updating while a job runs.
     with `currentDepth: 25` and `targetDepth: 40`.
   - The temporary `stockfish-cloud-backend-verify` server was deleted and
     `hcloud server list` was empty afterward.
-- Servers should still be deleted explicitly when no longer needed.
+- Servers should still be deleted explicitly when no longer needed; the idle
+  watchdog is a safety net for forgotten warm servers.
 - No separate product-direction markdown file is used; product direction belongs
   in this `AGENTS.md`.
 
@@ -201,6 +206,20 @@ The current CLI has a first reusable-server analysis shape:
 ./bin/stockfish-cloud stop-position --server stockfish-cloud --position-id position-1
 ./bin/stockfish-cloud delete --server stockfish-cloud
 ```
+
+`start` installs `stockfish-cloud-idle-delete.service` and
+`stockfish-cloud-idle-delete.timer` unless `--no-idle-delete` is passed. The
+systemd timer runs on the server every `5` minutes and deletes that server via
+the Hetzner Cloud API after `90` minutes without a running analysis container.
+Analysis start/end and manual `stop-position` update the remote last-activity
+marker under `/var/lib/stockfish-cloud/`.
+
+The idle-delete installer reads `HCLOUD_TOKEN` if present, otherwise extracts
+the active token from the local `hcloud` context, then uploads it to
+`/etc/stockfish-cloud-idle-delete.env` with mode `600`. This is acceptable for
+temporary single-purpose servers because it makes idle deletion work even if
+the Mac is asleep or offline, but it must not be generalized casually to
+long-lived/shared servers.
 
 The current macOS app build/run shape is:
 
@@ -484,6 +503,8 @@ a clear delete-server action.
 
 - Hetzner bills cloud servers while the server object exists. Analysis should
   not auto-delete after each job, but the UI must make manual deletion obvious.
+  The server-side idle timer should auto-delete forgotten warm servers after
+  `90` minutes without analysis activity.
 - Current account limit allows `ccx33` but not `ccx43`.
 - API tokens must not be stored casually in repo files. macOS Keychain is the
   likely place for app storage.

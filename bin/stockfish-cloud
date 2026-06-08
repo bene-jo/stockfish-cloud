@@ -26,6 +26,9 @@ ANALYZE_STREAM="false"
 POSITION_ID=""
 KEEP_SERVER="false"
 JSON_OUTPUT="false"
+IDLE_DELETE="true"
+IDLE_TIMEOUT_SECONDS="5400"
+IDLE_CHECK_INTERVAL_SECONDS="300"
 WORKER_IMAGE="stockfish-cloud:local"
 SKIP_BUILD="false"
 PULL_IMAGE="true"
@@ -33,6 +36,8 @@ KNOWN_HOSTS_FILE="${TMPDIR:-/tmp}/stockfish-cloud-$$-known-hosts"
 SERVER_IP=""
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTE_CONTEXT_DIR="/root/stockfish-cloud-worker"
+REMOTE_STATE_DIR="/var/lib/stockfish-cloud"
+REMOTE_LAST_ACTIVITY_FILE="${REMOTE_STATE_DIR}/last-analysis-activity"
 
 usage() {
   cat <<'USAGE'
@@ -67,6 +72,10 @@ Options:
   --movetime MS         Analyze for fixed milliseconds, default: 10000
   --stream              Emit live analysis updates as JSONL
   --json                Emit JSON where supported
+  --no-idle-delete      For start only: do not install server auto-delete guard
+  --idle-timeout SEC    Auto-delete after idle seconds, default: 5400
+  --idle-check-interval SEC
+                        Auto-delete check interval, default: 300
   --keep-server         For bench only: do not delete the temporary server
   -h, --help            Show this help
 
@@ -175,6 +184,18 @@ parse_args() {
         JSON_OUTPUT="true"
         shift
         ;;
+      --no-idle-delete|--no-idle-watchdog)
+        IDLE_DELETE="false"
+        shift
+        ;;
+      --idle-timeout)
+        IDLE_TIMEOUT_SECONDS="${2:?Missing value for --idle-timeout}"
+        shift 2
+        ;;
+      --idle-check-interval)
+        IDLE_CHECK_INTERVAL_SECONDS="${2:?Missing value for --idle-check-interval}"
+        shift 2
+        ;;
       --keep-server)
         KEEP_SERVER="true"
         shift
@@ -274,11 +295,53 @@ require_local_tools() {
   require_command scp
 }
 
+active_hcloud_token() {
+  if [[ -n "${HCLOUD_TOKEN:-}" ]]; then
+    printf "%s" "${HCLOUD_TOKEN}"
+    return
+  fi
+
+  require_command python3
+
+  local config_file
+  config_file="${HCLOUD_CONFIG:-${HOME}/.config/hcloud/cli.toml}"
+  python3 - "${config_file}" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+try:
+    text = open(path, encoding="utf-8").read()
+except OSError:
+    raise SystemExit(1)
+
+active_match = re.search(r'active_context\s*=\s*"([^"]+)"', text)
+if not active_match:
+    raise SystemExit(1)
+
+active_context = active_match.group(1)
+for section in re.split(r'\n\[\[contexts\]\]\n', text)[1:]:
+    name_match = re.search(r'\bname\s*=\s*"([^"]+)"', section)
+    token_match = re.search(r'\btoken\s*=\s*"([^"]+)"', section)
+    if name_match and token_match and name_match.group(1) == active_context:
+        print(token_match.group(1), end="")
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
+server_id() {
+  require_command python3
+
+  hcloud server describe "${SERVER_NAME}" -o json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])'
+}
+
 prepare_server() {
   wait_for_ssh "${SERVER_IP}" || die "SSH did not become available"
 
   echo "Installing Docker on ${SERVER_NAME}..."
-  run_remote "${SERVER_IP}" "DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io"
+  run_remote "${SERVER_IP}" "DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io curl"
 
   if [[ "${SKIP_BUILD}" == "false" ]]; then
     echo "Uploading Docker worker context..."
@@ -291,6 +354,7 @@ prepare_server() {
     echo "Pulling Stockfish container ${WORKER_IMAGE} on ${SERVER_NAME}..."
     run_remote "${SERVER_IP}" "docker pull '${WORKER_IMAGE}'"
   fi
+
 }
 
 create_and_prepare_server() {
@@ -311,11 +375,18 @@ resolve_server_ip() {
 run_start() {
   require_local_tools
   parse_args "$@"
+  trap cleanup EXIT
   create_and_prepare_server
+  install_idle_delete
+  unset SERVER_CREATED
+  trap - EXIT
 
   echo "Server is ready."
   echo "Name: ${SERVER_NAME}"
   echo "IP: ${SERVER_IP}"
+  if [[ "${IDLE_DELETE}" == "true" ]]; then
+    echo "Auto-delete: after $((IDLE_TIMEOUT_SECONDS / 60)) idle minutes without analysis."
+  fi
 }
 
 run_bench() {
@@ -335,6 +406,130 @@ run_bench() {
 
 shell_quote() {
   printf "%q" "$1"
+}
+
+touch_remote_analysis_activity() {
+  [[ -n "${SERVER_IP}" ]] || resolve_server_ip
+
+  run_remote "${SERVER_IP}" \
+    "mkdir -p '${REMOTE_STATE_DIR}' && touch '${REMOTE_LAST_ACTIVITY_FILE}'" \
+    >/dev/null
+}
+
+install_idle_delete() {
+  if [[ "${IDLE_DELETE}" != "true" ]]; then
+    return
+  fi
+
+  local token id temp_dir env_file script_file service_file timer_file
+  token="$(active_hcloud_token)" || die "Could not read active hcloud token. Set HCLOUD_TOKEN or run hcloud context create."
+  id="$(server_id)"
+
+  temp_dir="$(mktemp -d)"
+  env_file="${temp_dir}/stockfish-cloud-idle-delete.env"
+  script_file="${temp_dir}/stockfish-cloud-idle-delete"
+  service_file="${temp_dir}/stockfish-cloud-idle-delete.service"
+  timer_file="${temp_dir}/stockfish-cloud-idle-delete.timer"
+
+  {
+    printf "HCLOUD_TOKEN=%q\n" "${token}"
+    printf "SERVER_ID=%q\n" "${id}"
+    printf "SERVER_NAME=%q\n" "${SERVER_NAME}"
+    printf "IDLE_TIMEOUT_SECONDS=%q\n" "${IDLE_TIMEOUT_SECONDS}"
+    printf "STATE_DIR=%q\n" "${REMOTE_STATE_DIR}"
+    printf "LAST_ACTIVITY_FILE=%q\n" "${REMOTE_LAST_ACTIVITY_FILE}"
+  } >"${env_file}"
+
+  cat >"${script_file}" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+source /etc/stockfish-cloud-idle-delete.env
+
+mkdir -p "${STATE_DIR}"
+
+running_analysis() {
+  docker ps --filter label=stockfish-cloud.analysis=true --format '{{.Names}}' | head -n 1 | grep -q .
+}
+
+if running_analysis; then
+  touch "${LAST_ACTIVITY_FILE}"
+  exit 0
+fi
+
+if [[ ! -f "${LAST_ACTIVITY_FILE}" ]]; then
+  touch "${LAST_ACTIVITY_FILE}"
+  exit 0
+fi
+
+last_activity="$(stat -c %Y "${LAST_ACTIVITY_FILE}")"
+now="$(date +%s)"
+idle_seconds=$((now - last_activity))
+
+if (( idle_seconds < IDLE_TIMEOUT_SECONDS )); then
+  exit 0
+fi
+
+if running_analysis; then
+  touch "${LAST_ACTIVITY_FILE}"
+  exit 0
+fi
+
+curl -fsS \
+  -X DELETE \
+  -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+  "https://api.hetzner.cloud/v1/servers/${SERVER_ID}" \
+  >/dev/null
+SCRIPT
+
+  cat >"${service_file}" <<'SERVICE'
+[Unit]
+Description=Delete idle Stockfish Cloud server
+Wants=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/stockfish-cloud-idle-delete
+SERVICE
+
+  cat >"${timer_file}" <<TIMER
+[Unit]
+Description=Check Stockfish Cloud server idle timeout
+
+[Timer]
+OnBootSec=${IDLE_CHECK_INTERVAL_SECONDS}s
+OnUnitActiveSec=${IDLE_CHECK_INTERVAL_SECONDS}s
+AccuracySec=30s
+Persistent=true
+Unit=stockfish-cloud-idle-delete.service
+
+[Install]
+WantedBy=timers.target
+TIMER
+
+  chmod 600 "${env_file}"
+  chmod 755 "${script_file}"
+  chmod 644 "${service_file}" "${timer_file}"
+
+  copy_to_remote "${env_file}" "${SERVER_IP}" "/root/stockfish-cloud-idle-delete.env"
+  copy_to_remote "${script_file}" "${SERVER_IP}" "/root/stockfish-cloud-idle-delete"
+  copy_to_remote "${service_file}" "${SERVER_IP}" "/root/stockfish-cloud-idle-delete.service"
+  copy_to_remote "${timer_file}" "${SERVER_IP}" "/root/stockfish-cloud-idle-delete.timer"
+
+  rm -rf "${temp_dir}"
+
+  echo "Installing server-side idle auto-delete guard..."
+  run_remote "${SERVER_IP}" "\
+    install -m 600 /root/stockfish-cloud-idle-delete.env /etc/stockfish-cloud-idle-delete.env && \
+    install -m 755 /root/stockfish-cloud-idle-delete /usr/local/bin/stockfish-cloud-idle-delete && \
+    install -m 644 /root/stockfish-cloud-idle-delete.service /etc/systemd/system/stockfish-cloud-idle-delete.service && \
+    install -m 644 /root/stockfish-cloud-idle-delete.timer /etc/systemd/system/stockfish-cloud-idle-delete.timer && \
+    rm -f /root/stockfish-cloud-idle-delete.env /root/stockfish-cloud-idle-delete /root/stockfish-cloud-idle-delete.service /root/stockfish-cloud-idle-delete.timer && \
+    mkdir -p '${REMOTE_STATE_DIR}' && \
+    touch '${REMOTE_LAST_ACTIVITY_FILE}' && \
+    systemctl daemon-reload && \
+    systemctl enable --now stockfish-cloud-idle-delete.timer"
 }
 
 position_container_name() {
@@ -426,6 +621,7 @@ run_analyze_fen() {
 
   [[ -n "${ANALYZE_FEN}" ]] || die "Missing required --fen"
   resolve_server_ip
+  touch_remote_analysis_activity
 
   if [[ "${WORKER_IMAGE}" != "stockfish-cloud:local" && "${PULL_IMAGE}" == "true" ]]; then
     echo "Pulling Stockfish container ${WORKER_IMAGE} on ${SERVER_NAME}..."
@@ -459,7 +655,7 @@ run_analyze_fen() {
 
   echo "Running Stockfish FEN analysis..."
   run_remote "${SERVER_IP}" \
-    "docker run --rm ${container_args} '${WORKER_IMAGE}' analyze-fen --fen $(shell_quote "${ANALYZE_FEN}") --threads $(shell_quote "${ANALYZE_THREADS}") --hash $(shell_quote "${ANALYZE_HASH_MB}") --multipv $(shell_quote "${ANALYZE_MULTIPV}") ${depth_or_time} ${stream_arg} ${position_arg}"
+    "mkdir -p '${REMOTE_STATE_DIR}'; touch '${REMOTE_LAST_ACTIVITY_FILE}'; docker run --rm ${container_args} '${WORKER_IMAGE}' analyze-fen --fen $(shell_quote "${ANALYZE_FEN}") --threads $(shell_quote "${ANALYZE_THREADS}") --hash $(shell_quote "${ANALYZE_HASH_MB}") --multipv $(shell_quote "${ANALYZE_MULTIPV}") ${depth_or_time} ${stream_arg} ${position_arg}; status=\$?; touch '${REMOTE_LAST_ACTIVITY_FILE}'; exit \${status}"
 }
 
 run_analyze_position() {
@@ -488,6 +684,7 @@ run_stop_position() {
 
   echo "Stopping Stockfish position ${POSITION_ID}..."
   if run_remote "${SERVER_IP}" "docker stop $(shell_quote "${container_name}") >/dev/null 2>&1"; then
+    touch_remote_analysis_activity
     if [[ "${JSON_OUTPUT}" == "true" ]]; then
       printf '{"positionId":%s,"status":"completed"}\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "${POSITION_ID}")"
     else
